@@ -8,14 +8,17 @@ from .data import (
     load_manifest,
     load_recording,
 )
+from .features import FeatureExtractionError, extract_window_features
 from .windowing import SignalWindow, apply_trim, make_windows
 
 __all__ = [
     "CANONICAL_SIGNAL_COLUMNS",
+    "FeatureExtractionError",
     "ManifestError",
     "RecordingLoadError",
     "SignalWindow",
     "apply_trim",
+    "extract_window_features",
     "load_dataset",
     "load_manifest",
     "load_recording",
