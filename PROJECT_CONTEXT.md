@@ -25,10 +25,34 @@ Goal: estimate treadmill running speed from a head-mounted IMU mounted on smart 
 - subject_1_day4: validation data, includes 5, 6, and 7 mph plus cadence manipulation tests.
 - subject_2: cross-subject / cadence manipulation data.
 
+## Raw file formats
+- Subject 1 Day 2 recordings are Excel/XLSX files.
+- Subject 1 Day 3 recordings are CSV files.
+- Subject 1 Day 4 recordings are CSV files.
+- Subject 2 recordings are CSV files.
+- The data loader must support both CSV and Excel/XLSX inputs.
+
+## Raw data policy
+- Treat all files in `data/raw/` as immutable source data.
+- Do not rename or modify raw files.
+- Create standardized recording names and corrected metadata in a dataset
+  manifest rather than changing raw filenames.
+- Ignore macOS metadata such as `.DS_Store`, `__MACOSX/`, and files beginning
+  with `._`; these are not data recordings.
+
 ## Known data issues
-- Day2Test4IMU.xlsx is suspicious and currently excluded.
+- `data/raw/subject_1_day4/imu_recording_20260619_6mnph_135spm_decreased.csv`
+  means 6 mph despite the `6mnph` typo.
+- `data/raw/subject_2/imu_recording_20260606_6pmh_elev2.csv` means 6 mph despite
+  the `6pmh` typo.
+- Some Subject 2 filenames contain cadence or condition notes, including `175`,
+  `185`, `leftfoothurt`, and `dropped_to_160`. Preserve these notes in manifest
+  metadata rather than discarding them during name standardization.
+- `data/raw/subject_1_day2/Day2Test4IMU.xlsx` is suspicious and currently
+  excluded.
+- `data/raw/subject_1_day2/Test4-8start-8mph.xlsx` must not be used unless it is
+  explicitly approved.
 - Day 2 files need start/end trimming due to treadmill startup/shutdown and stepping off.
-- Some filenames contain typos, such as 6mnph instead of 6mph.
 
 ## Current assumptions
 - Train primarily on Subject 1 Day 3.
@@ -49,3 +73,11 @@ Goal: estimate treadmill running speed from a head-mounted IMU mounted on smart 
 3. Does the model generalize across days?
 4. Does the model generalize across subjects?
 5. Should walking and running be modeled separately?
+
+## Next recommended task
+Create `configs/dataset_manifest.csv` manually or semi-automatically with one
+row per real data file and these columns:
+
+```text
+recording_id,relative_path,subject_id,session,speed_mph,file_type,condition,include,exclusion_reason,trim_start_sec,trim_end_sec,notes
+```
