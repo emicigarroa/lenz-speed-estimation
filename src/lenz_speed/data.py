@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+import warnings
 
+import numpy as np
 import pandas as pd
 
 
@@ -46,6 +48,7 @@ _COLUMN_ALIASES = {
     "gy_dps": ("gy_dps", "AsY(¬∞/s)", "AsY(°/s)"),
     "gz_dps": ("gz_dps", "AsZ(¬∞/s)", "AsZ(°/s)"),
 }
+_IMU_PACKET_TYPE = 61
 
 
 class ManifestError(ValueError):
@@ -54,6 +57,10 @@ class ManifestError(ValueError):
 
 class RecordingLoadError(ValueError):
     """Raised when a raw recording cannot be normalized safely."""
+
+
+class DataQualityWarning(UserWarning):
+    """Warn that non-IMU or invalid source rows were excluded during loading."""
 
 
 def _default_repository_root() -> Path:
@@ -195,8 +202,8 @@ def load_manifest(
     return manifest.reset_index(drop=True)
 
 
-def _normalize_signal_columns(raw: pd.DataFrame, *, source_path: Path) -> pd.DataFrame:
-    """Select and rename raw IMU channels to the canonical signal schema."""
+def _signal_column_mapping(raw: pd.DataFrame, *, source_path: Path) -> dict[Any, str]:
+    """Map source signal columns to their canonical names."""
 
     stripped_to_original: dict[str, Any] = {}
     for column in raw.columns:
@@ -232,6 +239,78 @@ def _normalize_signal_columns(raw: pd.DataFrame, *, source_path: Path) -> pd.Dat
             f"Recording {source_path} is missing required signal columns: "
             f"{'; '.join(missing)}. Available columns: {available}"
         )
+    return rename
+
+
+def _filter_csv_imu_rows(
+    raw: pd.DataFrame,
+    *,
+    source_path: Path,
+    recording_id: str,
+) -> pd.DataFrame:
+    """Remove non-IMU and invalid rows from a mixed-packet CSV recording."""
+
+    rename = _signal_column_mapping(raw, source_path=source_path)
+    normalized_names = {
+        str(column).strip().lstrip("\ufeff"): column for column in raw.columns
+    }
+
+    numeric_signals: dict[Any, pd.Series] = {}
+    finite_signals = np.ones(len(raw), dtype=bool)
+    for source_column in rename:
+        numeric = pd.to_numeric(raw[source_column], errors="coerce")
+        numeric_signals[source_column] = numeric
+        finite_signals &= np.isfinite(numeric.to_numpy(dtype=float))
+
+    parse_ok = np.ones(len(raw), dtype=bool)
+    parse_column = normalized_names.get("parse_ok")
+    if parse_column is not None:
+        normalized_parse = (
+            raw[parse_column].astype("string").str.strip().str.lower()
+        )
+        parse_ok = normalized_parse.isin({"true", "1", "yes"}).to_numpy()
+
+    imu_packet = np.ones(len(raw), dtype=bool)
+    packet_column = normalized_names.get("packet_type")
+    if packet_column is not None:
+        packet_type = pd.to_numeric(raw[packet_column], errors="coerce")
+        imu_packet = packet_type.eq(_IMU_PACKET_TYPE).to_numpy()
+
+    valid = finite_signals & parse_ok & imu_packet
+    dropped_count = int((~valid).sum())
+    if dropped_count:
+        reason_counts = [
+            f"{int((~finite_signals).sum())} with non-numeric/non-finite signals"
+        ]
+        if parse_column is not None:
+            reason_counts.append(f"{int((~parse_ok).sum())} parse_ok failures")
+        if packet_column is not None:
+            reason_counts.append(f"{int((~imu_packet).sum())} non-IMU packets")
+        drop_percent = dropped_count / len(raw) * 100 if len(raw) else 0.0
+        warnings.warn(
+            f"Recording {recording_id!r}: dropped {dropped_count} of {len(raw)} "
+            f"CSV rows ({drop_percent:.3f}%) before sample indexing: "
+            f"{', '.join(reason_counts)}. Reason counts may overlap.",
+            DataQualityWarning,
+            stacklevel=2,
+        )
+
+    if len(raw) and not valid.any():
+        raise RecordingLoadError(
+            f"Recording {recording_id!r} has no valid IMU rows after CSV "
+            "packet and signal validation."
+        )
+
+    filtered = raw.loc[valid].copy()
+    for source_column, numeric in numeric_signals.items():
+        filtered[source_column] = numeric.loc[valid].to_numpy()
+    return filtered.reset_index(drop=True)
+
+
+def _normalize_signal_columns(raw: pd.DataFrame, *, source_path: Path) -> pd.DataFrame:
+    """Select and rename raw IMU channels to the canonical signal schema."""
+
+    rename = _signal_column_mapping(raw, source_path=source_path)
 
     normalized = raw.rename(columns=rename).loc[:, CANONICAL_SIGNAL_COLUMNS].copy()
     for column in CANONICAL_SIGNAL_COLUMNS:
@@ -256,6 +335,11 @@ def _read_recording_row(row: Mapping[str, Any]) -> pd.DataFrame:
     try:
         if file_type == "csv":
             raw = pd.read_csv(source_path)
+            raw = _filter_csv_imu_rows(
+                raw,
+                source_path=source_path,
+                recording_id=recording_id,
+            )
         elif file_type == "xlsx":
             raw = pd.read_excel(source_path)
         else:
