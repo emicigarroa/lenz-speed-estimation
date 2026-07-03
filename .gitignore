@@ -25,3 +25,5 @@ outputs/
 
 # Processed datasets
 data/processed/
+# Raw data kept local
+data/raw/
