@@ -40,6 +40,12 @@ def test_synthetic_two_hz_signal_produces_expected_features() -> None:
         "Gyro_RMS_Y",
         "Gyro_RMS_Z",
         "Accel_Mag_RMS",
+        "Dynamic_Accel_Mag_RMS",
+        "Accel_Mag_P95_P05",
+        "Accel_Mag_Jerk_RMS",
+        "Accel_HighFreq_Energy_Ratio",
+        "Gyro_Mag_RMS",
+        "GyroY_PeakToPeak",
+        "Accel_Anisotropy",
     )
     assert all(np.isfinite(features[name]) for name in feature_names)
-

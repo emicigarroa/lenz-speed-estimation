@@ -25,6 +25,9 @@ _BANDPASS_LOW_HZ = 0.7
 _BANDPASS_HIGH_HZ = 5.0
 _CADENCE_LOW_HZ = 0.8
 _CADENCE_HIGH_HZ = 4.0
+_SPECTRAL_LOW_HZ = 0.7
+_HIGH_FREQUENCY_LOW_HZ = 5.0
+_SPECTRAL_HIGH_HZ = 15.0
 _FILTER_ORDER = 4
 
 
@@ -39,10 +42,10 @@ def _validate_sampling_rate(fs: Real) -> float:
     fs_float = float(fs)
     if not math.isfinite(fs_float) or fs_float <= 0:
         raise ValueError("fs must be finite and greater than zero.")
-    if fs_float <= 2 * _BANDPASS_HIGH_HZ:
+    if fs_float <= 2 * _SPECTRAL_HIGH_HZ:
         raise ValueError(
-            f"fs must be greater than {_BANDPASS_HIGH_HZ * 2:g} Hz so the "
-            f"{_BANDPASS_HIGH_HZ:g} Hz filter cutoff is below Nyquist."
+            f"fs must be greater than {_SPECTRAL_HIGH_HZ * 2:g} Hz so the "
+            f"{_SPECTRAL_HIGH_HZ:g} Hz spectral limit is below Nyquist."
         )
     return fs_float
 
@@ -130,6 +133,68 @@ def _estimate_cadence_spm(filtered_z: np.ndarray, fs: float) -> float:
     return float(dominant_frequency * 60.0)
 
 
+def _filter_gyro_y(gy_dps: np.ndarray, fs: float) -> np.ndarray:
+    """Mean-center and bandpass-filter roll angular velocity."""
+
+    centered = gy_dps - np.mean(gy_dps)
+    sos = butter(
+        _FILTER_ORDER,
+        [_BANDPASS_LOW_HZ, _BANDPASS_HIGH_HZ],
+        btype="bandpass",
+        fs=fs,
+        output="sos",
+    )
+    try:
+        return sosfiltfilt(sos, centered)
+    except ValueError as error:
+        raise FeatureExtractionError(
+            "window.signal is too short to filter Gyro Y with the fourth-order "
+            "zero-phase Butterworth bandpass filter."
+        ) from error
+
+
+def _high_frequency_energy_ratio(
+    acceleration_magnitude: np.ndarray,
+    fs: float,
+) -> float:
+    """Return 5--15 Hz power divided by 0.7--15 Hz magnitude power."""
+
+    demeaned = acceleration_magnitude - np.mean(acceleration_magnitude)
+    frequencies = np.fft.rfftfreq(demeaned.size, d=1.0 / fs)
+    power = np.square(np.abs(np.fft.rfft(demeaned)))
+    total_band = (frequencies >= _SPECTRAL_LOW_HZ) & (
+        frequencies <= _SPECTRAL_HIGH_HZ
+    )
+    high_band = (frequencies >= _HIGH_FREQUENCY_LOW_HZ) & (
+        frequencies <= _SPECTRAL_HIGH_HZ
+    )
+    total_power = float(np.sum(power[total_band]))
+    if not math.isfinite(total_power) or total_power <= 0:
+        raise FeatureExtractionError(
+            "Acceleration magnitude has no spectral energy between "
+            f"{_SPECTRAL_LOW_HZ:g} and {_SPECTRAL_HIGH_HZ:g} Hz."
+        )
+    return float(np.sum(power[high_band]) / total_power)
+
+
+def _acceleration_anisotropy(signals: dict[str, np.ndarray]) -> float:
+    """Return the dominant share of the demeaned acceleration covariance."""
+
+    acceleration = np.column_stack(
+        (signals["ax_g"], signals["ay_g"], signals["az_g"])
+    )
+    demeaned = acceleration - np.mean(acceleration, axis=0, keepdims=True)
+    covariance = demeaned.T @ demeaned / (len(demeaned) - 1)
+    eigenvalues = np.maximum(np.linalg.eigvalsh(covariance), 0.0)
+    total_variance = float(np.sum(eigenvalues))
+    if not math.isfinite(total_variance) or total_variance <= 0:
+        raise FeatureExtractionError(
+            "Acceleration anisotropy is undefined because the window has no "
+            "acceleration variance."
+        )
+    return float(np.max(eigenvalues) / total_variance)
+
+
 def _rms(values: np.ndarray) -> float:
     """Return the root mean square of a finite numeric array."""
 
@@ -146,7 +211,9 @@ def extract_window_features(
     after a fourth-order 0.7--5.0 Hz Butterworth bandpass filter. Cadence is the
     dominant real-FFT frequency from 0.8--4.0 Hz multiplied by 60. Gyroscope
     RMS features use the unfiltered angular-rate channels, and
-    ``Accel_Mag_RMS`` uses the raw three-axis acceleration magnitude.
+    ``Accel_Mag_RMS`` uses the raw three-axis acceleration magnitude. Feature
+    Engineering v2 adds conservative magnitude, jerk, spectral, roll-amplitude,
+    and covariance summaries without changing the original seven formulas.
 
     Parameters
     ----------
@@ -158,7 +225,8 @@ def extract_window_features(
     Returns
     -------
     dict
-        Window provenance followed by the seven requested feature values.
+        Window provenance followed by the original seven and seven v2 feature
+        values.
     """
 
     fs_float = _validate_sampling_rate(fs)
@@ -169,6 +237,16 @@ def extract_window_features(
         + np.square(signals["ay_g"])
         + np.square(signals["az_g"])
     )
+    dynamic_acceleration_magnitude = acceleration_magnitude - np.mean(
+        acceleration_magnitude
+    )
+    acceleration_magnitude_jerk = np.diff(acceleration_magnitude) * fs_float
+    gyroscope_magnitude = np.sqrt(
+        np.square(signals["gx_dps"])
+        + np.square(signals["gy_dps"])
+        + np.square(signals["gz_dps"])
+    )
+    filtered_gyro_y = _filter_gyro_y(signals["gy_dps"], fs_float)
 
     return {
         "recording_id": window.recording_id,
@@ -182,5 +260,17 @@ def extract_window_features(
         "Gyro_RMS_Y": _rms(signals["gy_dps"]),
         "Gyro_RMS_Z": _rms(signals["gz_dps"]),
         "Accel_Mag_RMS": _rms(acceleration_magnitude),
+        "Dynamic_Accel_Mag_RMS": _rms(dynamic_acceleration_magnitude),
+        "Accel_Mag_P95_P05": float(
+            np.percentile(acceleration_magnitude, 95)
+            - np.percentile(acceleration_magnitude, 5)
+        ),
+        "Accel_Mag_Jerk_RMS": _rms(acceleration_magnitude_jerk),
+        "Accel_HighFreq_Energy_Ratio": _high_frequency_energy_ratio(
+            acceleration_magnitude,
+            fs_float,
+        ),
+        "Gyro_Mag_RMS": _rms(gyroscope_magnitude),
+        "GyroY_PeakToPeak": float(np.ptp(filtered_gyro_y)),
+        "Accel_Anisotropy": _acceleration_anisotropy(signals),
     }
-

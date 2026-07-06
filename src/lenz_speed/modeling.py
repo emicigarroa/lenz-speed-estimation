@@ -15,6 +15,13 @@ DEFAULT_FEATURES = (
     "Gyro_RMS_Y",
     "Gyro_RMS_Z",
     "Accel_Mag_RMS",
+    "Dynamic_Accel_Mag_RMS",
+    "Accel_Mag_P95_P05",
+    "Accel_Mag_Jerk_RMS",
+    "Accel_HighFreq_Energy_Ratio",
+    "Gyro_Mag_RMS",
+    "GyroY_PeakToPeak",
+    "Accel_Anisotropy",
 )
 
 REDUCED_FEATURE_SETS = {
@@ -49,4 +56,3 @@ def get_models() -> dict[str, RegressorMixin]:
             random_state=42,
         ),
     }
-

@@ -32,6 +32,13 @@ FEATURE_TABLE_COLUMNS = (
     "Gyro_RMS_Y",
     "Gyro_RMS_Z",
     "Accel_Mag_RMS",
+    "Dynamic_Accel_Mag_RMS",
+    "Accel_Mag_P95_P05",
+    "Accel_Mag_Jerk_RMS",
+    "Accel_HighFreq_Energy_Ratio",
+    "Gyro_Mag_RMS",
+    "GyroY_PeakToPeak",
+    "Accel_Anisotropy",
 )
 
 _MANIFEST_METADATA_COLUMNS = (
@@ -79,8 +86,8 @@ def build_windowed_feature_table(
 
     The function loads each selected recording, applies its manifest trimming
     values, creates the default 5-second windows with 2.5-second steps, and
-    extracts the seven initial features. Blank trim values are treated as zero
-    seconds. Rows marked ``include=false`` are skipped unless
+    extracts the original and v2 features. Blank trim values are treated as
+    zero seconds. Rows marked ``include=false`` are skipped unless
     ``include_excluded=True`` is passed explicitly. Windows containing invalid
     signal values are skipped with a provenance-rich message; values are never
     interpolated silently.
@@ -147,6 +154,17 @@ def build_windowed_feature_table(
                     "Gyro_RMS_Y": features["Gyro_RMS_Y"],
                     "Gyro_RMS_Z": features["Gyro_RMS_Z"],
                     "Accel_Mag_RMS": features["Accel_Mag_RMS"],
+                    "Dynamic_Accel_Mag_RMS": features[
+                        "Dynamic_Accel_Mag_RMS"
+                    ],
+                    "Accel_Mag_P95_P05": features["Accel_Mag_P95_P05"],
+                    "Accel_Mag_Jerk_RMS": features["Accel_Mag_Jerk_RMS"],
+                    "Accel_HighFreq_Energy_Ratio": features[
+                        "Accel_HighFreq_Energy_Ratio"
+                    ],
+                    "Gyro_Mag_RMS": features["Gyro_Mag_RMS"],
+                    "GyroY_PeakToPeak": features["GyroY_PeakToPeak"],
+                    "Accel_Anisotropy": features["Accel_Anisotropy"],
                 }
             )
             valid_window_count += 1
