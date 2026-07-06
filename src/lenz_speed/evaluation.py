@@ -363,6 +363,145 @@ def same_subject_cadence_stress_test(
     return metrics, predictions
 
 
+def cadence_robustness_loso(
+    dataframe: pd.DataFrame | None = None,
+    *,
+    output_dir: str | Path = "outputs/tables",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run leave-one-speed-out cadence robustness evaluation on Subject 1 Day 4.
+
+    Each fold trains on all approved Subject 1 Day 3 natural-speed windows plus
+    approved Subject 1 Day 4 cadence-condition windows from two of the three Day
+    4 speeds. The held-out Day 4 speed is used only for testing. This
+    experiment is intentionally separate from standard validation and from the
+    original cadence stress test.
+    """
+
+    table = _load_feature_table(dataframe)
+    _validate_columns(table, DEFAULT_FEATURES)
+
+    approved_recordings = set(load_manifest()["recording_id"].astype(str))
+    approved = table.loc[
+        table["recording_id"].astype(str).isin(approved_recordings)
+    ].copy()
+    numeric_columns = [*DEFAULT_FEATURES, _TARGET_COLUMN]
+    try:
+        approved[numeric_columns] = approved[numeric_columns].apply(
+            pd.to_numeric,
+            errors="raise",
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("Feature table contains non-numeric model values.") from error
+    if not np.isfinite(approved[numeric_columns].to_numpy(dtype=float)).all():
+        raise ValueError("Feature table contains missing or non-finite model values.")
+
+    subject_1 = approved["subject_id"] == "subject_1"
+    day3 = subject_1 & (approved["session"] == "day3")
+    day4 = subject_1 & (approved["session"] == "day4")
+    day3_train = approved.loc[day3].copy()
+    day4_table = approved.loc[day4].copy()
+    if day3_train.empty:
+        raise ValueError("Training split is empty; expected Subject 1 Day 3 rows.")
+    if day4_table.empty:
+        raise ValueError("Day 4 split is empty; expected Subject 1 Day 4 rows.")
+
+    held_out_speeds = (7.0, 6.0, 5.0)
+    available_speeds = set(day4_table[_TARGET_COLUMN].astype(float).unique())
+    missing_speeds = sorted(set(held_out_speeds).difference(available_speeds))
+    if missing_speeds:
+        raise ValueError(
+            "Day 4 split is missing required LOSO speeds: "
+            + ", ".join(f"{speed:g}" for speed in missing_speeds)
+        )
+
+    specs = [
+        ("DEFAULT_FEATURES", DEFAULT_FEATURES, model_name, model)
+        for model_name, model in get_models().items()
+    ]
+    fold_metrics: list[pd.DataFrame] = []
+    fold_predictions: list[pd.DataFrame] = []
+
+    for fold_index, held_out_speed in enumerate(held_out_speeds, start=1):
+        train_day4_speeds = tuple(
+            speed for speed in sorted(held_out_speeds) if speed != held_out_speed
+        )
+        train_day4 = day4_table.loc[
+            day4_table[_TARGET_COLUMN].astype(float).isin(train_day4_speeds)
+        ].copy()
+        test = day4_table.loc[
+            day4_table[_TARGET_COLUMN].astype(float) == held_out_speed
+        ].copy()
+        train = pd.concat([day3_train, train_day4], ignore_index=True)
+        if train_day4.empty:
+            raise ValueError(
+                f"Fold {fold_index} has no Day 4 training rows for speeds "
+                + ", ".join(f"{speed:g}" for speed in train_day4_speeds)
+            )
+        if test.empty:
+            raise ValueError(
+                f"Fold {fold_index} has no test rows for held-out speed "
+                f"{held_out_speed:g} mph."
+            )
+
+        metrics, predictions = _evaluate_specs(train, test, specs)
+        train_speed_label = "|".join(f"{speed:g}" for speed in train_day4_speeds)
+        for frame in (metrics, predictions):
+            frame.insert(0, "train_day4_speeds_mph", train_speed_label)
+            frame.insert(0, "held_out_speed_mph", held_out_speed)
+            frame.insert(0, "fold", fold_index)
+        fold_metrics.append(metrics)
+        fold_predictions.append(predictions)
+
+    metrics = pd.concat(fold_metrics, ignore_index=True)
+    predictions = pd.concat(fold_predictions, ignore_index=True)
+
+    overall_rows: list[dict[str, Any]] = []
+    for (feature_set, model_name), group in predictions.groupby(
+        ["feature_set", "model"],
+        sort=False,
+    ):
+        actual = group["actual_speed_mph"].to_numpy(dtype=float)
+        predicted = group["predicted_speed_mph"].to_numpy(dtype=float)
+        overall_rows.append(
+            {
+                "fold": "overall",
+                "held_out_speed_mph": "all",
+                "train_day4_speeds_mph": "loso",
+                "feature_set": feature_set,
+                "features": str(group["features"].iloc[0]),
+                "model": model_name,
+                "n_train_windows": np.nan,
+                "n_test_windows": len(group),
+                "n_train_recordings": np.nan,
+                "n_test_recordings": group["recording_id"].nunique(),
+                "MAE": float(mean_absolute_error(actual, predicted)),
+                "RMSE": float(np.sqrt(mean_squared_error(actual, predicted))),
+                "R2": float(r2_score(actual, predicted)),
+            }
+        )
+    metrics = pd.concat([metrics, pd.DataFrame(overall_rows)], ignore_index=True)
+
+    destination = _output_directory(output_dir)
+    metrics_path = destination / "cadence_robustness_loso_metrics.csv"
+    predictions_path = destination / "cadence_robustness_loso_predictions.csv"
+    metrics.to_csv(metrics_path, index=False)
+    predictions.to_csv(predictions_path, index=False)
+
+    print(
+        "Cadence robustness LOSO: "
+        f"{len(held_out_speeds)} folds, {len(predictions)} predictions."
+    )
+    print(
+        metrics.loc[
+            metrics["model"] == "Random Forest",
+            ["fold", "held_out_speed_mph", "MAE", "RMSE", "R2"],
+        ].to_string(index=False)
+    )
+    print(f"Saved LOSO metrics to {metrics_path}")
+    print(f"Saved LOSO predictions to {predictions_path}")
+    return metrics, predictions
+
+
 def feature_ablation(
     dataframe: pd.DataFrame | None = None,
     *,

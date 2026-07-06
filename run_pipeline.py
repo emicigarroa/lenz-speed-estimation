@@ -16,6 +16,7 @@ os.environ.setdefault(
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from lenz_speed import (  # noqa: E402
+    cadence_robustness_loso,
     cadence_stress_error_analysis,
     feature_ablation,
     generate_all_plots,
@@ -44,6 +45,7 @@ def main() -> None:
     standard_metrics, standard_predictions = same_subject_standard_validation()
     stress_metrics, stress_predictions = same_subject_cadence_stress_test()
     error_by_speed_condition, worst_recordings = cadence_stress_error_analysis()
+    loso_metrics, loso_predictions = cadence_robustness_loso()
     ablation_metrics, ablation_predictions = feature_ablation()
     figure_paths = generate_all_plots()
 
@@ -54,6 +56,8 @@ def main() -> None:
         REPOSITORY_ROOT / "outputs/tables/cadence_stress_predictions.csv",
         REPOSITORY_ROOT / "outputs/tables/error_by_speed_condition.csv",
         REPOSITORY_ROOT / "outputs/tables/worst_recordings.csv",
+        REPOSITORY_ROOT / "outputs/tables/cadence_robustness_loso_metrics.csv",
+        REPOSITORY_ROOT / "outputs/tables/cadence_robustness_loso_predictions.csv",
         REPOSITORY_ROOT / "outputs/tables/feature_ablation_metrics.csv",
         REPOSITORY_ROOT / "outputs/tables/feature_ablation_predictions.csv",
     ]
@@ -67,6 +71,13 @@ def main() -> None:
 
     standard_rf_mae = _model_mae(standard_metrics, "Random Forest")
     stress_rf_mae = _model_mae(stress_metrics, "Random Forest")
+    loso_rf_overall = loso_metrics.loc[
+        (loso_metrics["model"] == "Random Forest")
+        & (loso_metrics["fold"] == "overall"),
+        "MAE",
+    ]
+    if len(loso_rf_overall) != 1:
+        raise ValueError("Expected exactly one overall LOSO Random Forest MAE row.")
     best_ablation = ablation_metrics.sort_values("MAE").iloc[0]
     with feature_table_path.open(encoding="utf-8") as feature_table_file:
         feature_row_count = sum(1 for _ in feature_table_file) - 1
@@ -88,6 +99,11 @@ def main() -> None:
         "Cadence stress error analysis: "
         f"{len(error_by_speed_condition)} speed/condition/model rows, "
         f"{len(worst_recordings)} recording/model rows"
+    )
+    print(
+        "Cadence robustness LOSO: "
+        f"{len(loso_predictions)} predictions, "
+        f"overall Random Forest MAE={float(loso_rf_overall.iloc[0]):.4f} mph"
     )
     print(
         "Best feature ablation: "

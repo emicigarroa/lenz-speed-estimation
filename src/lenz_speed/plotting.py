@@ -439,6 +439,65 @@ def plot_cadence_stress_error_by_condition(
     return _save_figure(fig, output_dir, "cadence_stress_error_by_condition.png")
 
 
+def plot_cadence_robustness_loso_mae(
+    metrics_path: str | Path = "outputs/tables/cadence_robustness_loso_metrics.csv",
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Plot LOSO cadence-robustness MAE by held-out Day 4 speed and model."""
+
+    table = _read_table(metrics_path, {"held_out_speed_mph", "model", "MAE"})
+    table = table.copy()
+    table["held_out_speed_numeric"] = pd.to_numeric(
+        table["held_out_speed_mph"],
+        errors="coerce",
+    )
+    table = table.dropna(subset=["held_out_speed_numeric"])
+    if table.empty:
+        raise ValueError("LOSO metrics table has no held-out speed rows to plot.")
+
+    speeds = sorted(table["held_out_speed_numeric"].unique())
+    model_order = [model for model in _MODEL_ORDER if model in set(table["model"])]
+    if not model_order:
+        raise ValueError("LOSO metrics table has no recognized model rows.")
+
+    x = np.arange(len(speeds), dtype=float)
+    width = min(0.18, 0.75 / len(model_order))
+    offsets = (np.arange(len(model_order)) - (len(model_order) - 1) / 2) * width
+
+    fig, ax = plt.subplots(figsize=(10, 5.8))
+    for offset, model_name in zip(offsets, model_order, strict=True):
+        model_data = table.loc[table["model"] == model_name].set_index(
+            "held_out_speed_numeric"
+        )
+        missing = [speed for speed in speeds if speed not in model_data.index]
+        if missing:
+            raise ValueError(
+                f"LOSO metrics table lacks {model_name} rows for held-out speeds: "
+                + ", ".join(f"{speed:g}" for speed in missing)
+            )
+        values = model_data.loc[speeds, "MAE"].to_numpy(dtype=float)
+        bars = ax.bar(
+            x + offset,
+            values,
+            width,
+            label=model_name,
+            color=_MODEL_COLORS.get(model_name),
+        )
+        ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{speed:g} mph" for speed in speeds])
+    ax.set_xlabel("Held-out Subject 1 Day 4 speed")
+    ax.set_ylabel("MAE (mph)")
+    ax.set_title("Cadence Robustness LOSO — MAE by Held-Out Speed")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(frameon=False, ncol=2)
+    ax.set_ylim(0, float(table["MAE"].max()) * 1.18)
+    fig.tight_layout()
+    return _save_figure(fig, output_dir, "cadence_robustness_loso_mae.png")
+
+
 def generate_all_plots(
     *,
     output_dir: str | Path = "outputs/figures",
@@ -452,6 +511,7 @@ def generate_all_plots(
         plot_cadence_stress_predicted_vs_actual,
         plot_feature_ablation_mae,
         plot_cadence_stress_error_by_condition,
+        plot_cadence_robustness_loso_mae,
     )
     paths = [plot(output_dir=output_dir) for plot in plot_functions]
     for path in paths:

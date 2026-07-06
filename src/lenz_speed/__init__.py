@@ -11,6 +11,7 @@ from .data import (
 )
 from .dataset import build_windowed_feature_table, save_windowed_feature_table
 from .evaluation import (
+    cadence_robustness_loso,
     cadence_stress_error_analysis,
     feature_ablation,
     same_subject_cadence_stress_test,
@@ -21,6 +22,7 @@ from .features import FeatureExtractionError, extract_window_features
 from .modeling import DEFAULT_FEATURES, REDUCED_FEATURE_SETS, get_models
 from .plotting import (
     generate_all_plots,
+    plot_cadence_robustness_loso_mae,
     plot_cadence_stress_error_by_condition,
     plot_cadence_stress_predicted_vs_actual,
     plot_feature_ablation_mae,
@@ -41,6 +43,7 @@ __all__ = [
     "SignalWindow",
     "apply_trim",
     "build_windowed_feature_table",
+    "cadence_robustness_loso",
     "cadence_stress_error_analysis",
     "extract_window_features",
     "feature_ablation",
@@ -50,6 +53,7 @@ __all__ = [
     "load_manifest",
     "load_recording",
     "make_windows",
+    "plot_cadence_robustness_loso_mae",
     "plot_cadence_stress_error_by_condition",
     "plot_cadence_stress_predicted_vs_actual",
     "plot_feature_ablation_mae",
