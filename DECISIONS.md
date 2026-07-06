@@ -6,13 +6,24 @@ conditions that would justify revisiting the decision.
 
 ## Initial decisions
 
-### Gyroscope Y represents roll
+### IMU coordinate frame and axis interpretation
 
-**Decision:** Interpret Gyro Y as roll, not pitch.
+**Decision:** Use the worn-device coordinate frame when interpreting IMU axes:
+X is left/right across the face, Y is forward/backward in the direction of
+travel, and Z is vertical up/down.
 
-**Rationale:** This is the established sensor-axis convention for the current
-dataset. Feature names may remain axis-based, but plots and interpretation must
-use the correct motion description.
+Accelerometer axes measure linear acceleration along each axis. Gyroscope axes
+measure angular velocity, or rotation rate, about each axis. Therefore:
+
+- `Accel_Z` is vertical acceleration.
+- `Gyro_X` is pitch/nodding rate, rotation about the left/right axis.
+- `Gyro_Y` is roll/side-tilt rate, rotation about the forward axis.
+- `Gyro_Z` is yaw/turning rate, rotation about the vertical axis.
+
+**Rationale:** This distinction prevents confusing linear acceleration axes
+with rotational axes. In particular, Gyro Y is roll/side-tilt rate, not pitch.
+Existing feature columns may remain axis-based for now; do not rename feature
+columns until a deliberate schema migration is approved.
 
 ### Subject 1 Day 3 is the canonical training set
 

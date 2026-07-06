@@ -9,7 +9,19 @@ Goal: estimate treadmill running speed from a head-mounted IMU mounted on smart 
 - IMU sampling rate: 200 Hz.
 - Window size: 5 seconds.
 - Step size: 2.5 seconds.
-- Gyro Y is ROLL, not pitch.
+- Device coordinate frame while worn:
+  - X axis: left/right across the face.
+  - Y axis: forward/backward, direction of travel.
+  - Z axis: up/down vertical.
+- Accelerometer axes measure linear acceleration along each axis.
+- Gyroscope axes measure angular velocity, or rotation rate, about each axis.
+- Axis interpretation:
+  - Accel_Z is vertical acceleration.
+  - Gyro_X is pitch/nodding rate, rotation about the left/right axis.
+  - Gyro_Y is roll/side-tilt rate, rotation about the forward axis.
+  - Gyro_Z is yaw/turning rate, rotation about the vertical axis.
+- Existing feature columns remain axis-based for now; do not rename them until
+  a deliberate schema migration is approved.
 - Main features:
   - Cadence_spm
   - RMS_Z
