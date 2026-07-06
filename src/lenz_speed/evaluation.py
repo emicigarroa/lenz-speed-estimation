@@ -168,6 +168,108 @@ def _output_directory(output_dir: str | Path) -> Path:
     return destination
 
 
+def _load_prediction_table(predictions_path: str | Path) -> pd.DataFrame:
+    path = Path(predictions_path).expanduser()
+    if not path.is_absolute():
+        path = _repository_root() / path
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Prediction table not found: {path}")
+
+    table = pd.read_csv(path)
+    required = {
+        "model",
+        "recording_id",
+        "condition",
+        "actual_speed_mph",
+        "residual_mph",
+        "absolute_error_mph",
+    }
+    missing = sorted(required.difference(table.columns))
+    if missing:
+        raise ValueError(
+            f"Prediction table {path} is missing columns: {', '.join(missing)}"
+        )
+    return table
+
+
+def _rmse(values: pd.Series) -> float:
+    return float(np.sqrt(np.mean(np.square(values.to_numpy(dtype=float)))))
+
+
+def cadence_stress_error_analysis(
+    predictions_path: str | Path = "outputs/tables/cadence_stress_predictions.csv",
+    *,
+    output_dir: str | Path = "outputs/tables",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Summarize cadence-stress prediction error by speed, condition, and recording.
+
+    The first returned table groups error by actual speed, cadence condition,
+    and model. The second groups by recording and model, sorted from highest
+    to lowest recording-level MAE to make the worst stress-test recordings easy
+    to inspect.
+    """
+
+    table = _load_prediction_table(predictions_path)
+    table = table.copy()
+    table["speed_mph"] = pd.to_numeric(table["actual_speed_mph"], errors="raise")
+    table["residual_mph"] = pd.to_numeric(table["residual_mph"], errors="raise")
+    table["absolute_error_mph"] = pd.to_numeric(
+        table["absolute_error_mph"],
+        errors="raise",
+    )
+
+    error_by_speed_condition = (
+        table.groupby(["speed_mph", "condition", "model"], dropna=False)
+        .agg(
+            n_windows=("absolute_error_mph", "size"),
+            n_recordings=("recording_id", "nunique"),
+            mean_error_mph=("residual_mph", "mean"),
+            mean_absolute_error_mph=("absolute_error_mph", "mean"),
+            median_absolute_error_mph=("absolute_error_mph", "median"),
+            rmse_mph=("residual_mph", _rmse),
+            max_absolute_error_mph=("absolute_error_mph", "max"),
+        )
+        .reset_index()
+        .sort_values(["speed_mph", "condition", "model"])
+    )
+
+    worst_recordings = (
+        table.groupby(
+            ["recording_id", "speed_mph", "condition", "model"],
+            dropna=False,
+        )
+        .agg(
+            n_windows=("absolute_error_mph", "size"),
+            mean_error_mph=("residual_mph", "mean"),
+            mean_absolute_error_mph=("absolute_error_mph", "mean"),
+            median_absolute_error_mph=("absolute_error_mph", "median"),
+            rmse_mph=("residual_mph", _rmse),
+            max_absolute_error_mph=("absolute_error_mph", "max"),
+        )
+        .reset_index()
+        .sort_values(
+            ["mean_absolute_error_mph", "rmse_mph", "recording_id", "model"],
+            ascending=[False, False, True, True],
+        )
+    )
+
+    destination = _output_directory(output_dir)
+    speed_condition_path = destination / "error_by_speed_condition.csv"
+    worst_recordings_path = destination / "worst_recordings.csv"
+    error_by_speed_condition.to_csv(speed_condition_path, index=False)
+    worst_recordings.to_csv(worst_recordings_path, index=False)
+
+    print(
+        "Cadence stress error analysis: "
+        f"{len(error_by_speed_condition)} speed/condition/model rows; "
+        f"{len(worst_recordings)} recording/model rows."
+    )
+    print(f"Saved speed/condition errors to {speed_condition_path}")
+    print(f"Saved worst recordings to {worst_recordings_path}")
+    return error_by_speed_condition, worst_recordings
+
+
 def same_subject_validation(
     dataframe: pd.DataFrame | None = None,
     *,

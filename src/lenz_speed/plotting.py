@@ -349,11 +349,101 @@ def plot_feature_ablation_mae(
     return _save_figure(fig, output_dir, "feature_ablation_mae.png")
 
 
+def plot_cadence_stress_error_by_condition(
+    error_table_path: str | Path = "outputs/tables/error_by_speed_condition.csv",
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Plot cadence-stress MAE by cadence condition and model."""
+
+    table = _read_table(
+        error_table_path,
+        {"condition", "model", "n_windows", "mean_absolute_error_mph"},
+    )
+    if table.empty:
+        raise ValueError("Cadence stress error table is empty.")
+
+    condition_order = [
+        condition
+        for condition in _CONDITION_COLORS
+        if condition in set(table["condition"])
+    ]
+    condition_order.extend(
+        sorted(set(table["condition"]).difference(condition_order))
+    )
+    model_order = [model for model in _MODEL_ORDER if model in set(table["model"])]
+    if not model_order:
+        raise ValueError("Cadence stress error table has no recognized model rows.")
+
+    rows: list[dict[str, float | str]] = []
+    for condition in condition_order:
+        condition_data = table.loc[table["condition"] == condition]
+        for model_name in model_order:
+            model_data = condition_data.loc[condition_data["model"] == model_name]
+            if model_data.empty:
+                continue
+            weights = model_data["n_windows"].to_numpy(dtype=float)
+            mae = np.average(
+                model_data["mean_absolute_error_mph"].to_numpy(dtype=float),
+                weights=weights,
+            )
+            rows.append(
+                {
+                    "condition": condition,
+                    "model": model_name,
+                    "mae": float(mae),
+                }
+            )
+    plot_data = pd.DataFrame(rows)
+    if plot_data.empty:
+        raise ValueError("Cadence stress error table produced no plottable rows.")
+
+    x = np.arange(len(condition_order), dtype=float)
+    width = min(0.18, 0.75 / len(model_order))
+
+    fig, ax = plt.subplots(figsize=(10, 5.8))
+    offsets = (np.arange(len(model_order)) - (len(model_order) - 1) / 2) * width
+    for offset, model_name in zip(offsets, model_order, strict=True):
+        model_data = plot_data.loc[plot_data["model"] == model_name].set_index(
+            "condition"
+        )
+        values = [
+            float(model_data.loc[condition, "mae"])
+            if condition in model_data.index
+            else np.nan
+            for condition in condition_order
+        ]
+        bars = ax.bar(
+            x + offset,
+            values,
+            width,
+            label=model_name,
+            color=_MODEL_COLORS.get(model_name),
+        )
+        ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
+
+    labels = [
+        str(condition).replace("cadence_", "").replace("_", " ").title()
+        for condition in condition_order
+    ]
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_xlabel("Cadence condition")
+    ax.set_ylabel("MAE (mph)")
+    ax.set_title("Cadence Stress Error by Condition")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(frameon=False, ncol=2)
+    upper = float(np.nanmax(plot_data["mae"])) * 1.18
+    ax.set_ylim(0, upper if upper > 0 else 1)
+    fig.tight_layout()
+    return _save_figure(fig, output_dir, "cadence_stress_error_by_condition.png")
+
+
 def generate_all_plots(
     *,
     output_dir: str | Path = "outputs/figures",
 ) -> list[Path]:
-    """Generate and save all five standard LENZ evaluation figures."""
+    """Generate and save all standard LENZ evaluation figures."""
 
     plot_functions = (
         plot_predicted_vs_actual_standard,
@@ -361,6 +451,7 @@ def generate_all_plots(
         plot_random_forest_prediction_trace_standard,
         plot_cadence_stress_predicted_vs_actual,
         plot_feature_ablation_mae,
+        plot_cadence_stress_error_by_condition,
     )
     paths = [plot(output_dir=output_dir) for plot in plot_functions]
     for path in paths:

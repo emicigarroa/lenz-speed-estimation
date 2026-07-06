@@ -16,6 +16,7 @@ os.environ.setdefault(
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from lenz_speed import (  # noqa: E402
+    cadence_stress_error_analysis,
     feature_ablation,
     generate_all_plots,
     same_subject_cadence_stress_test,
@@ -42,6 +43,7 @@ def main() -> None:
     feature_table_path = save_windowed_feature_table()
     standard_metrics, standard_predictions = same_subject_standard_validation()
     stress_metrics, stress_predictions = same_subject_cadence_stress_test()
+    error_by_speed_condition, worst_recordings = cadence_stress_error_analysis()
     ablation_metrics, ablation_predictions = feature_ablation()
     figure_paths = generate_all_plots()
 
@@ -50,6 +52,8 @@ def main() -> None:
         REPOSITORY_ROOT / "outputs/tables/same_subject_standard_predictions.csv",
         REPOSITORY_ROOT / "outputs/tables/cadence_stress_metrics.csv",
         REPOSITORY_ROOT / "outputs/tables/cadence_stress_predictions.csv",
+        REPOSITORY_ROOT / "outputs/tables/error_by_speed_condition.csv",
+        REPOSITORY_ROOT / "outputs/tables/worst_recordings.csv",
         REPOSITORY_ROOT / "outputs/tables/feature_ablation_metrics.csv",
         REPOSITORY_ROOT / "outputs/tables/feature_ablation_predictions.csv",
     ]
@@ -79,6 +83,11 @@ def main() -> None:
         "Cadence stress test: "
         f"{len(stress_predictions)} predictions, "
         f"Random Forest MAE={stress_rf_mae:.4f} mph"
+    )
+    print(
+        "Cadence stress error analysis: "
+        f"{len(error_by_speed_condition)} speed/condition/model rows, "
+        f"{len(worst_recordings)} recording/model rows"
     )
     print(
         "Best feature ablation: "
