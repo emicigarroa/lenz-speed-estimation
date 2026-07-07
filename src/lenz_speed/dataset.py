@@ -39,6 +39,13 @@ FEATURE_TABLE_COLUMNS = (
     "Gyro_Mag_RMS",
     "GyroY_PeakToPeak",
     "Accel_Anisotropy",
+    "Impact_Peak_Count",
+    "Mean_Impact_Interval_s",
+    "Impact_Interval_CV",
+    "Mean_Impact_Prominence",
+    "Mean_Impact_Width_s",
+    "Impact_Duty_Proxy",
+    "Vertical_Peak_Sharpness",
 )
 
 _MANIFEST_METADATA_COLUMNS = (
@@ -86,8 +93,8 @@ def build_windowed_feature_table(
 
     The function loads each selected recording, applies its manifest trimming
     values, creates the default 5-second windows with 2.5-second steps, and
-    extracts the original and v2 features. Blank trim values are treated as
-    zero seconds. Rows marked ``include=false`` are skipped unless
+    extracts the original, v2, and v3 features. Blank trim values are treated
+    as zero seconds. Rows marked ``include=false`` are skipped unless
     ``include_excluded=True`` is passed explicitly. Windows containing invalid
     signal values are skipped with a provenance-rich message; values are never
     interpolated silently.
@@ -165,6 +172,19 @@ def build_windowed_feature_table(
                     "Gyro_Mag_RMS": features["Gyro_Mag_RMS"],
                     "GyroY_PeakToPeak": features["GyroY_PeakToPeak"],
                     "Accel_Anisotropy": features["Accel_Anisotropy"],
+                    "Impact_Peak_Count": features["Impact_Peak_Count"],
+                    "Mean_Impact_Interval_s": features[
+                        "Mean_Impact_Interval_s"
+                    ],
+                    "Impact_Interval_CV": features["Impact_Interval_CV"],
+                    "Mean_Impact_Prominence": features[
+                        "Mean_Impact_Prominence"
+                    ],
+                    "Mean_Impact_Width_s": features["Mean_Impact_Width_s"],
+                    "Impact_Duty_Proxy": features["Impact_Duty_Proxy"],
+                    "Vertical_Peak_Sharpness": features[
+                        "Vertical_Peak_Sharpness"
+                    ],
                 }
             )
             valid_window_count += 1

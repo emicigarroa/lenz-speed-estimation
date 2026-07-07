@@ -47,5 +47,12 @@ def test_synthetic_two_hz_signal_produces_expected_features() -> None:
         "Gyro_Mag_RMS",
         "GyroY_PeakToPeak",
         "Accel_Anisotropy",
+        "Impact_Peak_Count",
+        "Mean_Impact_Interval_s",
+        "Impact_Interval_CV",
+        "Mean_Impact_Prominence",
+        "Mean_Impact_Width_s",
+        "Impact_Duty_Proxy",
+        "Vertical_Peak_Sharpness",
     )
     assert all(np.isfinite(features[name]) for name in feature_names)

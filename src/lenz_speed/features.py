@@ -7,7 +7,7 @@ from numbers import Real
 
 import numpy as np
 import pandas as pd
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, find_peaks, peak_widths, sosfiltfilt
 
 from .windowing import SignalWindow
 
@@ -29,6 +29,7 @@ _SPECTRAL_LOW_HZ = 0.7
 _HIGH_FREQUENCY_LOW_HZ = 5.0
 _SPECTRAL_HIGH_HZ = 15.0
 _FILTER_ORDER = 4
+_MIN_IMPACT_INTERVAL_SEC = 0.2
 
 
 class FeatureExtractionError(ValueError):
@@ -195,6 +196,97 @@ def _acceleration_anisotropy(signals: dict[str, np.ndarray]) -> float:
     return float(np.max(eigenvalues) / total_variance)
 
 
+def _impact_peak_features(filtered_z: np.ndarray, fs: float) -> dict[str, float]:
+    """Return gait-event summaries from filtered vertical acceleration peaks.
+
+    Peaks are detected on the 0.7--5.0 Hz filtered Z acceleration signal,
+    because Z is vertical in the worn glasses frame. The peak detector uses a
+    conservative prominence threshold based on within-window vertical motion and
+    a 0.2 second minimum spacing to avoid double-counting nearby samples from
+    the same impact-like event.
+
+    Smooth or low-amplitude windows can legitimately have no detectable peaks.
+    Those windows receive finite zero-valued temporal summaries rather than
+    failing feature extraction.
+    """
+
+    amplitude_range = float(np.ptp(filtered_z))
+    vertical_std = float(np.std(filtered_z))
+    prominence_threshold = max(0.05 * amplitude_range, 0.25 * vertical_std)
+    if not math.isfinite(prominence_threshold) or prominence_threshold <= 0:
+        return {
+            "Impact_Peak_Count": 0.0,
+            "Mean_Impact_Interval_s": 0.0,
+            "Impact_Interval_CV": 0.0,
+            "Mean_Impact_Prominence": 0.0,
+            "Mean_Impact_Width_s": 0.0,
+            "Impact_Duty_Proxy": 0.0,
+            "Vertical_Peak_Sharpness": 0.0,
+        }
+
+    peaks, properties = find_peaks(
+        filtered_z,
+        distance=max(1, int(round(_MIN_IMPACT_INTERVAL_SEC * fs))),
+        prominence=prominence_threshold,
+    )
+    peak_count = int(peaks.size)
+    if peak_count == 0:
+        return {
+            "Impact_Peak_Count": 0.0,
+            "Mean_Impact_Interval_s": 0.0,
+            "Impact_Interval_CV": 0.0,
+            "Mean_Impact_Prominence": 0.0,
+            "Mean_Impact_Width_s": 0.0,
+            "Impact_Duty_Proxy": 0.0,
+            "Vertical_Peak_Sharpness": 0.0,
+        }
+
+    prominences = properties["prominences"].astype(float, copy=False)
+    widths_samples = peak_widths(
+        filtered_z,
+        peaks,
+        rel_height=0.5,
+        prominence_data=(
+            properties["prominences"],
+            properties["left_bases"],
+            properties["right_bases"],
+        ),
+    )[0]
+    widths_sec = widths_samples / fs
+    intervals_sec = np.diff(peaks) / fs
+
+    mean_interval = float(np.mean(intervals_sec)) if intervals_sec.size else 0.0
+    interval_cv = (
+        float(np.std(intervals_sec) / mean_interval)
+        if intervals_sec.size and mean_interval > 0
+        else 0.0
+    )
+    mean_width = float(np.mean(widths_sec)) if widths_sec.size else 0.0
+    window_duration_sec = filtered_z.size / fs
+    duty_proxy = (
+        float(np.sum(widths_sec) / window_duration_sec)
+        if window_duration_sec > 0
+        else 0.0
+    )
+    mean_prominence = float(np.mean(prominences))
+    sharpness_values = np.divide(
+        prominences,
+        widths_sec,
+        out=np.zeros_like(prominences, dtype=float),
+        where=widths_sec > 0,
+    )
+
+    return {
+        "Impact_Peak_Count": float(peak_count),
+        "Mean_Impact_Interval_s": mean_interval,
+        "Impact_Interval_CV": interval_cv,
+        "Mean_Impact_Prominence": mean_prominence,
+        "Mean_Impact_Width_s": mean_width,
+        "Impact_Duty_Proxy": min(max(duty_proxy, 0.0), 1.0),
+        "Vertical_Peak_Sharpness": float(np.mean(sharpness_values)),
+    }
+
+
 def _rms(values: np.ndarray) -> float:
     """Return the root mean square of a finite numeric array."""
 
@@ -214,6 +306,8 @@ def extract_window_features(
     ``Accel_Mag_RMS`` uses the raw three-axis acceleration magnitude. Feature
     Engineering v2 adds conservative magnitude, jerk, spectral, roll-amplitude,
     and covariance summaries without changing the original seven formulas.
+    Feature Engineering v3 adds gait-event and temporal summaries from the
+    same filtered vertical acceleration signal.
 
     Parameters
     ----------
@@ -225,8 +319,8 @@ def extract_window_features(
     Returns
     -------
     dict
-        Window provenance followed by the original seven and seven v2 feature
-        values.
+        Window provenance followed by the original seven, seven v2, and seven
+        v3 feature values.
     """
 
     fs_float = _validate_sampling_rate(fs)
@@ -247,6 +341,7 @@ def extract_window_features(
         + np.square(signals["gz_dps"])
     )
     filtered_gyro_y = _filter_gyro_y(signals["gy_dps"], fs_float)
+    impact_features = _impact_peak_features(filtered_z, fs_float)
 
     return {
         "recording_id": window.recording_id,
@@ -273,4 +368,5 @@ def extract_window_features(
         "Gyro_Mag_RMS": _rms(gyroscope_magnitude),
         "GyroY_PeakToPeak": float(np.ptp(filtered_gyro_y)),
         "Accel_Anisotropy": _acceleration_anisotropy(signals),
+        **impact_features,
     }
