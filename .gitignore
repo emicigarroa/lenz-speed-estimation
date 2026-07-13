@@ -20,9 +20,6 @@ env/
 # VS Code
 .vscode/
 
-# Generated outputs
-outputs/
-
 # Processed datasets
 data/processed/
 # Raw data kept local
