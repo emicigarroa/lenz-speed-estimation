@@ -46,6 +46,10 @@ FEATURE_TABLE_COLUMNS = (
     "Mean_Impact_Width_s",
     "Impact_Duty_Proxy",
     "Vertical_Peak_Sharpness",
+    "Impact_Impulse",
+    "Peak_Symmetry",
+    "Impact_Crest_Factor",
+    "Impact_Local_Kurtosis",
 )
 
 _MANIFEST_METADATA_COLUMNS = (
@@ -64,6 +68,50 @@ def _trim_value(value: Any) -> float:
     """Interpret blank manifest trim values as zero seconds."""
 
     return 0.0 if pd.isna(value) else float(value)
+
+
+def _selected_trim_values(manifest_row: dict[str, Any]) -> tuple[float, float]:
+    """Return active trim boundaries for a manifest row.
+
+    Approved manual trim boundaries take priority. Automatic trim proposals are
+    used only when ``trim_review_status`` explicitly indicates acceptance. This
+    prevents unreviewed ramp/plateau detector proposals from silently entering
+    training or evaluation data.
+    """
+
+    approved_start = manifest_row.get("approved_trim_start_sec")
+    approved_end = manifest_row.get("approved_trim_end_sec")
+    if not pd.isna(approved_start) or not pd.isna(approved_end):
+        return _trim_value(approved_start), _trim_value(approved_end)
+
+    review_status = str(manifest_row.get("trim_review_status", "")).strip().lower()
+    if review_status in {"accepted", "approved", "auto_accepted"}:
+        return (
+            _trim_value(manifest_row.get("auto_trim_start_sec")),
+            _trim_value(manifest_row.get("auto_trim_end_sec")),
+        )
+
+    has_unreviewed_auto_trim = (
+        not pd.isna(manifest_row.get("auto_trim_start_sec"))
+        or not pd.isna(manifest_row.get("auto_trim_end_sec"))
+    )
+    has_legacy_trim = (
+        not pd.isna(manifest_row.get("trim_start_sec"))
+        or not pd.isna(manifest_row.get("trim_end_sec"))
+    )
+    if has_unreviewed_auto_trim and not has_legacy_trim:
+        recording_id = manifest_row.get("recording_id", "<unknown>")
+        raise ValueError(
+            f"{recording_id} has automatic trim proposals but no approved "
+            "trim boundaries. Mark trim_review_status as accepted/approved, "
+            "or fill approved_trim_start_sec/approved_trim_end_sec before "
+            "including this recording."
+        )
+
+    return (
+        _trim_value(manifest_row.get("trim_start_sec")),
+        _trim_value(manifest_row.get("trim_end_sec")),
+    )
 
 
 def _print_build_summary(
@@ -93,8 +141,8 @@ def build_windowed_feature_table(
 
     The function loads each selected recording, applies its manifest trimming
     values, creates the default 5-second windows with 2.5-second steps, and
-    extracts the original, v2, and v3 features. Blank trim values are treated
-    as zero seconds. Rows marked ``include=false`` are skipped unless
+    extracts the original, v2, v3, and experimental v4 features. Blank trim
+    values are treated as zero seconds. Rows marked ``include=false`` are skipped unless
     ``include_excluded=True`` is passed explicitly. Windows containing invalid
     signal values are skipped with a provenance-rich message; values are never
     interpolated silently.
@@ -125,10 +173,11 @@ def build_windowed_feature_table(
             recording_id,
             include_excluded=include_excluded,
         )
+        trim_start_sec, trim_end_sec = _selected_trim_values(manifest_row)
         trimmed = apply_trim(
             recording,
-            trim_start_sec=_trim_value(manifest_row["trim_start_sec"]),
-            trim_end_sec=_trim_value(manifest_row["trim_end_sec"]),
+            trim_start_sec=trim_start_sec,
+            trim_end_sec=trim_end_sec,
             fs=fs,
         )
         windows = make_windows(trimmed, recording_id=recording_id, fs=fs)
@@ -184,6 +233,12 @@ def build_windowed_feature_table(
                     "Impact_Duty_Proxy": features["Impact_Duty_Proxy"],
                     "Vertical_Peak_Sharpness": features[
                         "Vertical_Peak_Sharpness"
+                    ],
+                    "Impact_Impulse": features["Impact_Impulse"],
+                    "Peak_Symmetry": features["Peak_Symmetry"],
+                    "Impact_Crest_Factor": features["Impact_Crest_Factor"],
+                    "Impact_Local_Kurtosis": features[
+                        "Impact_Local_Kurtosis"
                     ],
                 }
             )

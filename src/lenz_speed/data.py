@@ -37,7 +37,13 @@ MANIFEST_COLUMNS = (
     "exclusion_reason",
     "trim_start_sec",
     "trim_end_sec",
+    "auto_trim_start_sec",
+    "auto_trim_end_sec",
+    "approved_trim_start_sec",
+    "approved_trim_end_sec",
     "notes",
+    "trim_method",
+    "trim_review_status",
 )
 
 _COLUMN_ALIASES = {
@@ -183,7 +189,15 @@ def load_manifest(
         _parse_include(value, row_number=index + 2)
         for index, value in enumerate(manifest["include"])
     ]
-    for column in ("speed_mph", "trim_start_sec", "trim_end_sec"):
+    for column in (
+        "speed_mph",
+        "trim_start_sec",
+        "trim_end_sec",
+        "auto_trim_start_sec",
+        "auto_trim_end_sec",
+        "approved_trim_start_sec",
+        "approved_trim_end_sec",
+    ):
         try:
             manifest[column] = pd.to_numeric(
                 manifest[column].replace("", pd.NA), errors="raise"

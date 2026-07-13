@@ -17,6 +17,10 @@ from .evaluation import (
     same_subject_cadence_stress_test,
     same_subject_standard_validation,
     same_subject_validation,
+    subject4_final_cross_subject_test,
+    subject2_normal_cross_subject_validation,
+    subjects_1_3_development_validation,
+    subjects_1_3_loso_validation,
 )
 from .features import FeatureExtractionError, extract_window_features
 from .modeling import DEFAULT_FEATURES, REDUCED_FEATURE_SETS, get_models
@@ -29,6 +33,11 @@ from .plotting import (
     plot_predicted_vs_actual_standard,
     plot_random_forest_prediction_trace_standard,
     plot_residual_by_speed_standard,
+    plot_subject3_vs_subject4_cadence_speed,
+    plot_subject4_error_by_speed,
+    plot_subject4_predicted_vs_actual,
+    plot_subject2_normal_cross_subject_error_by_speed,
+    plot_subject2_normal_cross_subject_predicted_vs_actual,
 )
 from .windowing import SignalWindow, apply_trim, make_windows
 
@@ -64,4 +73,13 @@ __all__ = [
     "same_subject_standard_validation",
     "same_subject_validation",
     "save_windowed_feature_table",
+    "subject4_final_cross_subject_test",
+    "subject2_normal_cross_subject_validation",
+    "subjects_1_3_development_validation",
+    "subjects_1_3_loso_validation",
+    "plot_subject2_normal_cross_subject_error_by_speed",
+    "plot_subject2_normal_cross_subject_predicted_vs_actual",
+    "plot_subject3_vs_subject4_cadence_speed",
+    "plot_subject4_error_by_speed",
+    "plot_subject4_predicted_vs_actual",
 ]
