@@ -8,10 +8,24 @@ The IMU is sampled at 200 Hz. The planned analysis uses 5-second windows with
 a 2.5-second step and evaluates whether inertial features add useful speed
 information beyond cadence.
 
-Current baseline results:
+Current frozen Subject 1 benchmark:
 
-- Standard same-subject Random Forest MAE: 0.2311 mph
-- Cadence stress-test Random Forest MAE: 0.7192 mph
+- Benchmark artifact: `exported_models/subject1_speed_benchmark_v1/`
+- Model: Random Forest with the frozen 19-feature v4 morphology feature order
+- Training data: approved Subject 1 Day 3 windows only
+- Validation data: frozen Subject 1 standard validation split
+- MAE: 0.1634656501460112 mph
+
+The deployment artifact for UI integration is separate:
+
+- Deployment artifact: `exported_models/subject1_speed_deployment_v1/`
+- Training data: expanded approved Subject 1 natural-cadence dataset
+- Output unit: mph
+- Intended use: personalized Subject 1 live inference in the UI
+
+Do not attribute the independent benchmark MAE directly to the deployment
+artifact because former validation recordings are included in deployment
+training.
 
 ## Setup
 
@@ -51,6 +65,8 @@ pytest
 ├── outputs/
 │   ├── figures/      # Generated plots
 │   └── tables/       # Generated result tables
+├── exported_models/  # Frozen benchmark/deployment model packages
+├── scripts/          # Reproducible export, validation, and analysis entry points
 ├── src/              # Reusable loading, feature, modeling, evaluation code
 ├── tests/            # Automated pytest suite
 ├── run_pipeline.py   # One-command pipeline entry point
@@ -72,8 +88,8 @@ See the README in each major folder for its intended contents and conventions.
    Day 2.
 4. Create 5-second windows with a 2.5-second step while retaining source-file
    and recording provenance.
-5. Extract documented cadence, acceleration, gyroscope, and feature engineering
-   v2 IMU features.
+5. Extract documented cadence, acceleration, gyroscope, temporal, and
+   morphology IMU features.
 6. Train primarily on Subject 1 Day 3 and validate on approved Subject 1 Day 2
    and Day 4 recordings.
 7. Report overall, per-speed, and per-recording results before progressing to
@@ -85,15 +101,47 @@ subject boundaries as appropriate to the experiment.
 
 ## Status
 
-The repository now contains a working end-to-end baseline:
+The repository now contains a working end-to-end research and export workflow:
 
 - Data loading from the manifest, with CSV/XLSX support and raw-file
   preservation.
 - Windowing, feature extraction, modeling, evaluation, and plotting modules.
-- Feature engineering v2, adding low-risk acceleration and gyroscope summary
-  features while preserving the original feature set.
+- Feature engineering through the frozen v4 morphology feature set used by the
+  exported Subject 1 models.
 - A one-command pipeline that regenerates processed features, result tables,
   and figures.
-- Automated pytest coverage for windowing, feature extraction, and evaluation.
+- Automated pytest coverage for windowing, feature extraction, evaluation, and
+  exported model parity.
 - A walkthrough notebook at `notebooks/01_project_walkthrough.ipynb` for
   reviewing pipeline outputs without duplicating core logic.
+- Frozen benchmark and deployment model packages under `exported_models/`.
+
+## Reproducing and validating exports
+
+Reproduce the frozen Subject 1 benchmark report:
+
+```bash
+python scripts/reproduce_subject1_speed_benchmark_v1.py
+```
+
+Regenerate the benchmark export package:
+
+```bash
+python scripts/export_subject1_speed_benchmark_v1.py
+```
+
+Regenerate the deployment export package:
+
+```bash
+python scripts/export_subject1_speed_deployment_v1.py
+```
+
+The export packages include golden fixtures and tests that verify feature
+parity, prediction parity, checksums, and runtime import isolation.
+
+## Model limitations
+
+The exported models are personalized Subject 1 artifacts. They are useful for
+benchmark reproduction and UI integration, but they are not universal
+cross-subject estimators and do not provide a statistically calibrated
+confidence score.

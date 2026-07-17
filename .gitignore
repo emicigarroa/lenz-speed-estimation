@@ -1,12 +1,17 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
 
 # Jupyter
 .ipynb_checkpoints/
 
 # macOS
 .DS_Store
+._*
+__MACOSX/
 
 # Virtual environments
 .venv/
@@ -16,11 +21,38 @@ env/
 # Python caches
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # VS Code
 .vscode/
+.idea/
 
 # Processed datasets
 data/processed/
 # Raw data kept local
 data/raw/
+
+# Local device/config and recordings
+.imu_glasses_device.json
+.env
+.env.*
+Recordings/
+
+# Generated logs/caches
+*.log
+*.tmp
+*.bak
+
+# Generated exploratory Subject 4 cadence-independent analysis outputs.
+# Keep the source analysis reproducible, but do not mix these ad hoc products
+# into production model-export commits unless they are intentionally promoted.
+outputs/figures/subject4_cadence_independent_feature_ranking.png
+outputs/figures/subject4_feature_correlation_heatmap.png
+outputs/figures/subject4_feature_vs_speed/
+outputs/figures/subject4_top_feature_normalized_trends.png
+outputs/tables/subject4_cadence_independent_feature_report.md
+outputs/tables/subject4_feature_rankings.csv
+outputs/tables/subject4_feature_speed_mechanics.csv
+outputs/tables/subject4_feature_summary_by_speed.csv
