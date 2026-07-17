@@ -1,0 +1,111 @@
+{
+  "accepted_fs_range_hz": [
+    190.0,
+    210.0
+  ],
+  "axis_mapping": {
+    "gyro_x": "pitch/nodding rate, rotation about left/right axis",
+    "gyro_y": "roll/side-tilt rate, rotation about forward axis",
+    "gyro_z": "yaw/turning rate, rotation about vertical axis",
+    "x": "left/right across the face",
+    "y": "forward/backward, direction of travel",
+    "z": "up/down vertical"
+  },
+  "canonical_input_columns": [
+    "ax_g",
+    "ay_g",
+    "az_g",
+    "gx_dps",
+    "gy_dps",
+    "gz_dps"
+  ],
+  "created_at": "2026-07-17T00:00:47.687174+00:00",
+  "estimator_params": {
+    "max_depth": 5,
+    "n_estimators": 200,
+    "random_state": 42
+  },
+  "estimator_type": "RandomForestRegressor",
+  "feature_code_commit": "9f03a50",
+  "feature_names": [
+    "Cadence_spm",
+    "RMS_Z",
+    "PeakToPeak_Z",
+    "Gyro_RMS_X",
+    "Gyro_RMS_Y",
+    "Gyro_RMS_Z",
+    "Accel_Mag_RMS",
+    "Dynamic_Accel_Mag_RMS",
+    "Accel_Mag_P95_P05",
+    "Accel_Mag_Jerk_RMS",
+    "Accel_HighFreq_Energy_Ratio",
+    "Gyro_Mag_RMS",
+    "GyroY_PeakToPeak",
+    "Accel_Anisotropy",
+    "Vertical_Peak_Sharpness",
+    "Impact_Impulse",
+    "Peak_Symmetry",
+    "Impact_Crest_Factor",
+    "Impact_Local_Kurtosis"
+  ],
+  "historical_validation_metrics": {
+    "MAE": 0.1634656501460112,
+    "R2": 0.990988130967335,
+    "RMSE": 0.1922184128832664
+  },
+  "input_units": {
+    "ax_g": "g",
+    "ay_g": "g",
+    "az_g": "g",
+    "gx_dps": "degrees_per_second",
+    "gy_dps": "degrees_per_second",
+    "gz_dps": "degrees_per_second"
+  },
+  "joblib_version": "1.5.3",
+  "maximum_internal_gap_sec": 0.05,
+  "ml_commit_hash": "9f03a50",
+  "model_file_sha256": "0866b331540ef1fdcdc347a0d85a91ef915b0a8c0c70d1a087ac9c70741755d3",
+  "model_identity": "Subject 1 calibrated benchmark model",
+  "model_role": "benchmark",
+  "model_version": "subject1_speed_benchmark_v1",
+  "nominal_fs_hz": 200,
+  "numpy_version": "2.5.0",
+  "output_unit": "mph",
+  "python_version": "3.13.12",
+  "reproduced_validation_metrics": {
+    "MAE": 0.1634656501460112,
+    "R2": 0.990988130967335,
+    "RMSE": 0.19221841288326644
+  },
+  "scikit_learn_version": "1.9.0",
+  "scipy_version": "1.18.0",
+  "step_sec": 2.5,
+  "training_recording_ids": [
+    "s1_day3_2p0mph",
+    "s1_day3_2p5mph",
+    "s1_day3_3p0mph",
+    "s1_day3_3p5mph",
+    "s1_day3_4p0mph",
+    "s1_day3_4p5mph",
+    "s1_day3_5p0mph",
+    "s1_day3_5p5mph",
+    "s1_day3_6p0mph",
+    "s1_day3_6p5mph",
+    "s1_day3_7p0mph",
+    "s1_day3_7p5mph",
+    "s1_day3_8p0mph",
+    "s1_day3_8p5mph"
+  ],
+  "training_window_count": 297,
+  "validation_recording_ids": [
+    "s1_day2_test5_8mph",
+    "s1_day2_test7_4mph",
+    "s1_day2_test8_3mph",
+    "s1_day2_test9_2mph",
+    "s1_day4_20260619_5mph_140spm_normal",
+    "s1_day4_20260619_6mph_145spm_normal",
+    "s1_day4_20260619_7mph_153spm_normal"
+  ],
+  "validation_window_count": 110,
+  "window_sec": 5.0
+}
