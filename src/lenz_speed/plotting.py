@@ -498,6 +498,285 @@ def plot_cadence_robustness_loso_mae(
     return _save_figure(fig, output_dir, "cadence_robustness_loso_mae.png")
 
 
+def plot_subject2_normal_cross_subject_predicted_vs_actual(
+    predictions_path: str | Path = (
+        "outputs/tables/subject2_normal_cross_subject_predictions.csv"
+    ),
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Plot Subject 2 normal-cadence cross-subject predictions by model."""
+
+    table = _read_table(
+        predictions_path,
+        {"model", "actual_speed_mph", "predicted_speed_mph"},
+    )
+    lower, upper = _prediction_limits(table)
+    fig, axes = plt.subplots(2, 2, figsize=(10, 9), sharex=True, sharey=True)
+
+    for ax, model_name in zip(axes.flat, _MODEL_ORDER, strict=True):
+        model_data = table.loc[table["model"] == model_name]
+        if model_data.empty:
+            raise ValueError(
+                "Subject 2 cross-subject prediction table has no rows for "
+                f"{model_name}."
+            )
+        color = _MODEL_COLORS[model_name]
+        ax.scatter(
+            model_data["actual_speed_mph"],
+            model_data["predicted_speed_mph"],
+            s=26,
+            alpha=0.58,
+            color=color,
+            edgecolors="none",
+        )
+        means = model_data.groupby("actual_speed_mph")["predicted_speed_mph"].mean()
+        ax.plot(means.index, means.values, "o-", color="#222222", linewidth=1.4)
+        ax.plot([lower, upper], [lower, upper], "--", color="#777777", linewidth=1)
+        ax.set_title(model_name, fontweight="semibold")
+        ax.set_xlim(lower, upper)
+        ax.set_ylim(lower, upper)
+        ax.grid(alpha=0.25)
+
+    fig.suptitle(
+        "Subject 2 Normal Cadence Cross-Subject Test: Predicted vs Actual",
+        fontsize=15,
+    )
+    fig.supxlabel("Actual speed (mph)")
+    fig.supylabel("Predicted speed (mph)")
+    fig.tight_layout(rect=(0.02, 0.02, 1, 0.96))
+    return _save_figure(
+        fig,
+        output_dir,
+        "subject2_normal_cross_subject_predicted_vs_actual.png",
+    )
+
+
+def plot_subject2_normal_cross_subject_error_by_speed(
+    predictions_path: str | Path = (
+        "outputs/tables/subject2_normal_cross_subject_predictions.csv"
+    ),
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Plot Subject 2 normal-cadence MAE by speed and model."""
+
+    table = _read_table(
+        predictions_path,
+        {"model", "actual_speed_mph", "absolute_error_mph"},
+    )
+    speeds = sorted(table["actual_speed_mph"].unique())
+    model_order = [model for model in _MODEL_ORDER if model in set(table["model"])]
+    if not model_order:
+        raise ValueError(
+            "Subject 2 cross-subject prediction table has no recognized model rows."
+        )
+
+    speed_mae = (
+        table.groupby(["actual_speed_mph", "model"], as_index=False)
+        .agg(mae_mph=("absolute_error_mph", "mean"))
+        .sort_values(["actual_speed_mph", "model"])
+    )
+    x = np.arange(len(speeds), dtype=float)
+    width = min(0.18, 0.75 / len(model_order))
+    offsets = (np.arange(len(model_order)) - (len(model_order) - 1) / 2) * width
+
+    fig, ax = plt.subplots(figsize=(10, 5.8))
+    for offset, model_name in zip(offsets, model_order, strict=True):
+        model_data = speed_mae.loc[speed_mae["model"] == model_name].set_index(
+            "actual_speed_mph"
+        )
+        values = [
+            float(model_data.loc[speed, "mae_mph"])
+            if speed in model_data.index
+            else np.nan
+            for speed in speeds
+        ]
+        bars = ax.bar(
+            x + offset,
+            values,
+            width,
+            label=model_name,
+            color=_MODEL_COLORS.get(model_name),
+        )
+        ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{float(speed):g} mph" for speed in speeds])
+    ax.set_xlabel("Subject 2 actual speed")
+    ax.set_ylabel("MAE (mph)")
+    ax.set_title("Subject 2 Normal Cadence Cross-Subject Error by Speed")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(frameon=False, ncol=2)
+    ax.set_ylim(0, float(speed_mae["mae_mph"].max()) * 1.18)
+    fig.tight_layout()
+    return _save_figure(
+        fig,
+        output_dir,
+        "subject2_normal_cross_subject_error_by_speed.png",
+    )
+
+
+def plot_subject4_predicted_vs_actual(
+    predictions_path: str | Path = (
+        "outputs/tables/subject4_final_cross_subject_predictions.csv"
+    ),
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Plot Subject 4 final-test predictions against actual speed."""
+
+    table = _read_table(
+        predictions_path,
+        {"feature_set", "actual_speed_mph", "predicted_speed_mph"},
+    )
+    feature_order = [
+        "v2",
+        "v2_plus_vertical_peak_sharpness",
+        "v4_morphology",
+    ]
+    labels = {
+        "v2": "v2",
+        "v2_plus_vertical_peak_sharpness": "v2 + sharpness",
+        "v4_morphology": "v4 morphology",
+    }
+    lower, upper = _prediction_limits(table)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5.4), sharex=True, sharey=True)
+    colors = ("#59A14F", "#4C78A8", "#E15759")
+    for ax, feature_set, color in zip(axes, feature_order, colors, strict=True):
+        subset = table.loc[table["feature_set"] == feature_set]
+        if subset.empty:
+            raise ValueError(f"Subject 4 predictions missing feature set {feature_set}.")
+        ax.scatter(
+            subset["actual_speed_mph"],
+            subset["predicted_speed_mph"],
+            s=24,
+            alpha=0.52,
+            color=color,
+            edgecolors="none",
+        )
+        means = subset.groupby("actual_speed_mph")["predicted_speed_mph"].mean()
+        ax.plot(means.index, means.values, "o-", color="#222222", linewidth=1.4)
+        ax.plot([lower, upper], [lower, upper], "--", color="#777777", linewidth=1)
+        ax.set_title(labels[feature_set], fontweight="semibold")
+        ax.set_xlim(lower, upper)
+        ax.set_ylim(lower, upper)
+        ax.grid(alpha=0.25)
+    fig.suptitle("Subject 4 Final Cross-Subject Test: Predicted vs Actual", fontsize=15)
+    fig.supxlabel("Actual speed (mph)")
+    fig.supylabel("Predicted speed (mph)")
+    fig.tight_layout(rect=(0.02, 0.03, 1, 0.94))
+    return _save_figure(fig, output_dir, "subject4_predicted_vs_actual.png")
+
+
+def plot_subject4_error_by_speed(
+    error_path: str | Path = "outputs/tables/subject4_error_by_speed.csv",
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Plot Subject 4 final-test MAE by speed and feature set."""
+
+    table = _read_table(
+        error_path,
+        {"feature_set", "actual_speed_mph", "mean_absolute_error_mph"},
+    )
+    feature_order = [
+        "v2",
+        "v2_plus_vertical_peak_sharpness",
+        "v4_morphology",
+    ]
+    labels = {
+        "v2": "v2",
+        "v2_plus_vertical_peak_sharpness": "v2 + sharpness",
+        "v4_morphology": "v4 morphology",
+    }
+    colors = {
+        "v2": "#59A14F",
+        "v2_plus_vertical_peak_sharpness": "#4C78A8",
+        "v4_morphology": "#E15759",
+    }
+    speeds = sorted(table["actual_speed_mph"].unique())
+    x = np.arange(len(speeds), dtype=float)
+    width = 0.24
+    fig, ax = plt.subplots(figsize=(12, 5.8))
+    offsets = (-width, 0.0, width)
+    for offset, feature_set in zip(offsets, feature_order, strict=True):
+        subset = table.loc[table["feature_set"] == feature_set].set_index(
+            "actual_speed_mph"
+        )
+        values = [
+            float(subset.loc[speed, "mean_absolute_error_mph"])
+            if speed in subset.index
+            else np.nan
+            for speed in speeds
+        ]
+        bars = ax.bar(
+            x + offset,
+            values,
+            width,
+            label=labels[feature_set],
+            color=colors[feature_set],
+        )
+        ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=7)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{float(speed):g}" for speed in speeds])
+    ax.set_xlabel("Subject 4 actual speed (mph)")
+    ax.set_ylabel("MAE (mph)")
+    ax.set_title("Subject 4 Final Cross-Subject Error by Speed")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(frameon=False, ncol=3)
+    ax.set_ylim(0, float(table["mean_absolute_error_mph"].max()) * 1.22)
+    fig.tight_layout()
+    return _save_figure(fig, output_dir, "subject4_error_by_speed.png")
+
+
+def plot_subject3_vs_subject4_cadence_speed(
+    feature_table_path: str | Path = "data/processed/windowed_features.csv",
+    *,
+    output_dir: str | Path = "outputs/figures",
+) -> Path:
+    """Compare cadence-vs-speed behavior for Subjects 3 and 4."""
+
+    table = _read_table(
+        feature_table_path,
+        {"subject_id", "condition", "speed_mph", "Cadence_spm"},
+    )
+    table = table.loc[
+        table["subject_id"].isin(["subject_3", "subject_4"])
+        & table["condition"].eq("normal")
+    ].copy()
+    if table.empty:
+        raise ValueError("Feature table has no Subject 3/4 normal rows.")
+    summary = (
+        table.groupby(["subject_id", "speed_mph"], as_index=False)
+        .agg(
+            cadence_mean=("Cadence_spm", "mean"),
+            cadence_std=("Cadence_spm", "std"),
+        )
+        .sort_values(["subject_id", "speed_mph"])
+    )
+    fig, ax = plt.subplots(figsize=(10, 5.8))
+    for subject_id, color in (("subject_3", "#4C78A8"), ("subject_4", "#E15759")):
+        subset = summary.loc[summary["subject_id"] == subject_id]
+        ax.errorbar(
+            subset["speed_mph"],
+            subset["cadence_mean"],
+            yerr=subset["cadence_std"].fillna(0),
+            marker="o",
+            linewidth=1.6,
+            capsize=3,
+            color=color,
+            label=subject_id.replace("_", " ").title(),
+        )
+    ax.set_xlabel("Speed (mph)")
+    ax.set_ylabel("Cadence estimate (spm)")
+    ax.set_title("Subject 3 vs Subject 4 Cadence-Speed Behavior")
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    return _save_figure(fig, output_dir, "subject3_vs_subject4_cadence_speed.png")
+
+
 def generate_all_plots(
     *,
     output_dir: str | Path = "outputs/figures",
@@ -512,6 +791,11 @@ def generate_all_plots(
         plot_feature_ablation_mae,
         plot_cadence_stress_error_by_condition,
         plot_cadence_robustness_loso_mae,
+        plot_subject2_normal_cross_subject_predicted_vs_actual,
+        plot_subject2_normal_cross_subject_error_by_speed,
+        plot_subject4_predicted_vs_actual,
+        plot_subject4_error_by_speed,
+        plot_subject3_vs_subject4_cadence_speed,
     )
     paths = [plot(output_dir=output_dir) for plot in plot_functions]
     for path in paths:

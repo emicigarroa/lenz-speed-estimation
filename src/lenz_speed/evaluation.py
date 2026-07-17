@@ -30,6 +30,34 @@ _PREDICTION_METADATA = (
     "window_end_sec",
     _TARGET_COLUMN,
 )
+_MORPHOLOGY_FEATURES = (
+    "Impact_Impulse",
+    "Peak_Symmetry",
+    "Impact_Crest_Factor",
+    "Impact_Local_Kurtosis",
+)
+_V2_FEATURES = (
+    "Cadence_spm",
+    "RMS_Z",
+    "PeakToPeak_Z",
+    "Gyro_RMS_X",
+    "Gyro_RMS_Y",
+    "Gyro_RMS_Z",
+    "Accel_Mag_RMS",
+    "Dynamic_Accel_Mag_RMS",
+    "Accel_Mag_P95_P05",
+    "Accel_Mag_Jerk_RMS",
+    "Accel_HighFreq_Energy_Ratio",
+    "Gyro_Mag_RMS",
+    "GyroY_PeakToPeak",
+    "Accel_Anisotropy",
+)
+_V2_PLUS_SHARPNESS_FEATURES = (*_V2_FEATURES, "Vertical_Peak_Sharpness")
+_V4_MORPHOLOGY_FEATURES = (*_V2_PLUS_SHARPNESS_FEATURES, *_MORPHOLOGY_FEATURES)
+_LATEST_MORPHOLOGY_FEATURES = tuple(
+    dict.fromkeys((*DEFAULT_FEATURES, *_MORPHOLOGY_FEATURES))
+)
+_NORMAL_CONDITIONS = {"steady_state", "cadence_normal", "normal"}
 
 
 def _repository_root() -> Path:
@@ -361,6 +389,293 @@ def same_subject_cadence_stress_test(
     print(f"Saved metrics to {metrics_path}")
     print(f"Saved predictions to {predictions_path}")
     return metrics, predictions
+
+
+def subject2_normal_cross_subject_validation(
+    dataframe: pd.DataFrame | None = None,
+    *,
+    output_dir: str | Path = "outputs/tables",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Evaluate Subject 1-trained models on Subject 2 normal-cadence data.
+
+    Models train only on approved Subject 1 Day 3 windows and test only on
+    approved Subject 2 windows labeled ``condition == "cadence_normal"``. No
+    Subject 2 windows are used for training. The feature set is the current
+    default model feature set plus the experimental v4 morphology descriptors,
+    keeping this cross-subject experiment separate from the existing validation
+    behavior.
+    """
+
+    table = _load_feature_table(dataframe)
+    features = _LATEST_MORPHOLOGY_FEATURES
+    _validate_columns(table, features)
+
+    approved_recordings = set(load_manifest()["recording_id"].astype(str))
+    approved = table.loc[
+        table["recording_id"].astype(str).isin(approved_recordings)
+    ].copy()
+
+    train = approved.loc[
+        (approved["subject_id"] == "subject_1")
+        & (approved["session"] == "day3")
+    ].copy()
+    test = approved.loc[
+        (approved["subject_id"] == "subject_2")
+        & (approved["condition"] == "cadence_normal")
+    ].copy()
+
+    if train.empty:
+        raise ValueError("Training split is empty; expected Subject 1 Day 3 rows.")
+    if test.empty:
+        raise ValueError(
+            "Cross-subject test split is empty; expected included Subject 2 "
+            "cadence_normal rows."
+        )
+
+    numeric_columns = [*features, _TARGET_COLUMN]
+    for name, split in (("training", train), ("cross-subject test", test)):
+        try:
+            split[numeric_columns] = split[numeric_columns].apply(
+                pd.to_numeric,
+                errors="raise",
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"The {name} split contains non-numeric values.") from error
+        if not np.isfinite(split[numeric_columns].to_numpy(dtype=float)).all():
+            raise ValueError(f"The {name} split contains missing or non-finite values.")
+
+    specs = [
+        ("LATEST_MORPHOLOGY_FEATURES", features, model_name, model)
+        for model_name, model in get_models().items()
+    ]
+    metrics, predictions = _evaluate_specs(train, test, specs)
+
+    destination = _output_directory(output_dir)
+    metrics_path = destination / "subject2_normal_cross_subject_metrics.csv"
+    predictions_path = destination / "subject2_normal_cross_subject_predictions.csv"
+    metrics.to_csv(metrics_path, index=False)
+    predictions.to_csv(predictions_path, index=False)
+
+    print(
+        "Subject 2 normal-cadence cross-subject validation: "
+        f"{len(train)} training windows from {train['recording_id'].nunique()} "
+        f"Subject 1 recordings; {len(test)} test windows from "
+        f"{test['recording_id'].nunique()} Subject 2 normal-cadence recordings."
+    )
+    print(metrics.loc[:, ["model", "MAE", "RMSE", "R2"]].to_string(index=False))
+    print(f"Saved metrics to {metrics_path}")
+    print(f"Saved predictions to {predictions_path}")
+    return metrics, predictions
+
+
+def subjects_1_3_development_validation(
+    dataframe: pd.DataFrame | None = None,
+    *,
+    output_dir: str | Path = "outputs/tables",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run a development cross-subject check using Subjects 1--3 only.
+
+    The split trains on normal/natural Subject 1 and Subject 3 windows, then
+    tests on Subject 2 normal-cadence windows. Subject 4 is intentionally
+    excluded so it remains untouched for the final frozen test.
+    """
+
+    table = _load_feature_table(dataframe)
+    features = _V4_MORPHOLOGY_FEATURES
+    _validate_columns(table, features)
+    approved_recordings = set(load_manifest()["recording_id"].astype(str))
+    approved = table.loc[
+        table["recording_id"].astype(str).isin(approved_recordings)
+    ].copy()
+    normal = approved["condition"].isin(_NORMAL_CONDITIONS)
+    train = approved.loc[
+        approved["subject_id"].isin(["subject_1", "subject_3"]) & normal
+    ].copy()
+    test = approved.loc[
+        (approved["subject_id"] == "subject_2")
+        & (approved["condition"] == "cadence_normal")
+    ].copy()
+    if train.empty or test.empty:
+        raise ValueError("Subjects 1--3 development split produced an empty split.")
+    numeric_columns = [*features, _TARGET_COLUMN]
+    for name, split in (("training", train), ("development test", test)):
+        split[numeric_columns] = split[numeric_columns].apply(pd.to_numeric, errors="raise")
+        if not np.isfinite(split[numeric_columns].to_numpy(dtype=float)).all():
+            raise ValueError(f"The {name} split contains missing or non-finite values.")
+
+    specs = [
+        ("V4_MORPHOLOGY", features, model_name, model)
+        for model_name, model in get_models().items()
+    ]
+    metrics, predictions = _evaluate_specs(train, test, specs)
+    destination = _output_directory(output_dir)
+    metrics_path = destination / "subjects1_3_development_metrics.csv"
+    predictions_path = destination / "subjects1_3_development_predictions.csv"
+    metrics.to_csv(metrics_path, index=False)
+    predictions.to_csv(predictions_path, index=False)
+    print(
+        "Subjects 1--3 development validation: "
+        f"{len(train)} train windows, {len(test)} test windows."
+    )
+    print(metrics.loc[:, ["model", "MAE", "RMSE", "R2"]].to_string(index=False))
+    print(f"Saved metrics to {metrics_path}")
+    print(f"Saved predictions to {predictions_path}")
+    return metrics, predictions
+
+
+def subjects_1_3_loso_validation(
+    dataframe: pd.DataFrame | None = None,
+    *,
+    output_dir: str | Path = "outputs/tables",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Leave one development subject out using only Subjects 1, 2, and 3."""
+
+    table = _load_feature_table(dataframe)
+    features = _V4_MORPHOLOGY_FEATURES
+    _validate_columns(table, features)
+    approved_recordings = set(load_manifest()["recording_id"].astype(str))
+    approved = table.loc[
+        table["recording_id"].astype(str).isin(approved_recordings)
+    ].copy()
+    development = approved.loc[
+        approved["subject_id"].isin(["subject_1", "subject_2", "subject_3"])
+        & approved["condition"].isin(_NORMAL_CONDITIONS)
+    ].copy()
+    numeric_columns = [*features, _TARGET_COLUMN]
+    development[numeric_columns] = development[numeric_columns].apply(
+        pd.to_numeric,
+        errors="raise",
+    )
+    if not np.isfinite(development[numeric_columns].to_numpy(dtype=float)).all():
+        raise ValueError("Development LOSO data contains missing or non-finite values.")
+
+    specs = [("V4_MORPHOLOGY", features, "Random Forest", get_models()["Random Forest"])]
+    metric_frames: list[pd.DataFrame] = []
+    prediction_frames: list[pd.DataFrame] = []
+    for held_out_subject in ("subject_1", "subject_2", "subject_3"):
+        train = development.loc[development["subject_id"] != held_out_subject].copy()
+        test = development.loc[development["subject_id"] == held_out_subject].copy()
+        if train.empty or test.empty:
+            continue
+        metrics, predictions = _evaluate_specs(train, test, specs)
+        metrics.insert(0, "held_out_subject_id", held_out_subject)
+        predictions.insert(0, "held_out_subject_id", held_out_subject)
+        metric_frames.append(metrics)
+        prediction_frames.append(predictions)
+
+    metrics = pd.concat(metric_frames, ignore_index=True)
+    predictions = pd.concat(prediction_frames, ignore_index=True)
+    overall_rows: list[dict[str, Any]] = []
+    for (feature_set, model_name), group in predictions.groupby(
+        ["feature_set", "model"],
+        sort=False,
+    ):
+        actual = group["actual_speed_mph"].to_numpy(dtype=float)
+        predicted = group["predicted_speed_mph"].to_numpy(dtype=float)
+        overall_rows.append(
+            {
+                "held_out_subject_id": "overall",
+                "feature_set": feature_set,
+                "features": str(group["features"].iloc[0]),
+                "model": model_name,
+                "n_train_windows": np.nan,
+                "n_test_windows": len(group),
+                "n_train_recordings": np.nan,
+                "n_test_recordings": group["recording_id"].nunique(),
+                "MAE": float(mean_absolute_error(actual, predicted)),
+                "RMSE": float(np.sqrt(mean_squared_error(actual, predicted))),
+                "R2": float(r2_score(actual, predicted)),
+            }
+        )
+    metrics = pd.concat([metrics, pd.DataFrame(overall_rows)], ignore_index=True)
+
+    destination = _output_directory(output_dir)
+    metrics_path = destination / "subjects1_3_loso_metrics.csv"
+    predictions_path = destination / "subjects1_3_loso_predictions.csv"
+    metrics.to_csv(metrics_path, index=False)
+    predictions.to_csv(predictions_path, index=False)
+    print("Subjects 1--3 LOSO development validation:")
+    print(metrics.loc[:, ["held_out_subject_id", "model", "MAE", "RMSE", "R2"]].to_string(index=False))
+    print(f"Saved metrics to {metrics_path}")
+    print(f"Saved predictions to {predictions_path}")
+    return metrics, predictions
+
+
+def subject4_final_cross_subject_test(
+    dataframe: pd.DataFrame | None = None,
+    *,
+    output_dir: str | Path = "outputs/tables",
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Run the frozen Subject 4 final cross-subject test.
+
+    Random Forest models train on normal/natural Subjects 1--3 windows and test
+    once on included normal Subject 4 windows. The function compares v2,
+    v2+Vertical_Peak_Sharpness, and full v4 morphology feature sets.
+    """
+
+    table = _load_feature_table(dataframe)
+    feature_sets = {
+        "v2": _V2_FEATURES,
+        "v2_plus_vertical_peak_sharpness": _V2_PLUS_SHARPNESS_FEATURES,
+        "v4_morphology": _V4_MORPHOLOGY_FEATURES,
+    }
+    all_features = tuple(dict.fromkeys(feature for features in feature_sets.values() for feature in features))
+    _validate_columns(table, all_features)
+    approved_recordings = set(load_manifest()["recording_id"].astype(str))
+    approved = table.loc[
+        table["recording_id"].astype(str).isin(approved_recordings)
+    ].copy()
+    normal = approved["condition"].isin(_NORMAL_CONDITIONS)
+    train = approved.loc[
+        approved["subject_id"].isin(["subject_1", "subject_2", "subject_3"]) & normal
+    ].copy()
+    test = approved.loc[
+        (approved["subject_id"] == "subject_4") & (approved["condition"] == "normal")
+    ].copy()
+    if train.empty or test.empty:
+        raise ValueError("Subject 4 final split produced an empty train or test split.")
+    numeric_columns = [*all_features, _TARGET_COLUMN]
+    for name, split in (("training", train), ("Subject 4 test", test)):
+        split[numeric_columns] = split[numeric_columns].apply(pd.to_numeric, errors="raise")
+        if not np.isfinite(split[numeric_columns].to_numpy(dtype=float)).all():
+            raise ValueError(f"The {name} split contains missing or non-finite values.")
+
+    rf = get_models()["Random Forest"]
+    specs = [
+        (feature_set, features, "Random Forest", rf)
+        for feature_set, features in feature_sets.items()
+    ]
+    metrics, predictions = _evaluate_specs(train, test, specs)
+    error_by_speed = (
+        predictions.groupby(["feature_set", "model", "actual_speed_mph"], as_index=False)
+        .agg(
+            n_windows=("absolute_error_mph", "size"),
+            n_recordings=("recording_id", "nunique"),
+            mean_error_mph=("residual_mph", "mean"),
+            mean_absolute_error_mph=("absolute_error_mph", "mean"),
+            median_absolute_error_mph=("absolute_error_mph", "median"),
+            rmse_mph=("residual_mph", _rmse),
+            max_absolute_error_mph=("absolute_error_mph", "max"),
+        )
+        .sort_values(["feature_set", "actual_speed_mph"])
+    )
+
+    destination = _output_directory(output_dir)
+    metrics_path = destination / "subject4_final_cross_subject_metrics.csv"
+    predictions_path = destination / "subject4_final_cross_subject_predictions.csv"
+    error_path = destination / "subject4_error_by_speed.csv"
+    metrics.to_csv(metrics_path, index=False)
+    predictions.to_csv(predictions_path, index=False)
+    error_by_speed.to_csv(error_path, index=False)
+    print(
+        "Subject 4 final cross-subject test: "
+        f"{len(train)} train windows, {len(test)} test windows."
+    )
+    print(metrics.loc[:, ["feature_set", "model", "MAE", "RMSE", "R2"]].to_string(index=False))
+    print(f"Saved metrics to {metrics_path}")
+    print(f"Saved predictions to {predictions_path}")
+    print(f"Saved error by speed to {error_path}")
+    return metrics, predictions, error_by_speed
 
 
 def cadence_robustness_loso(

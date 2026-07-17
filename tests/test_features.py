@@ -54,5 +54,9 @@ def test_synthetic_two_hz_signal_produces_expected_features() -> None:
         "Mean_Impact_Width_s",
         "Impact_Duty_Proxy",
         "Vertical_Peak_Sharpness",
+        "Impact_Impulse",
+        "Peak_Symmetry",
+        "Impact_Crest_Factor",
+        "Impact_Local_Kurtosis",
     )
     assert all(np.isfinite(features[name]) for name in feature_names)

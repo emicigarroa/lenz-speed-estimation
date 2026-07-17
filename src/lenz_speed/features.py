@@ -30,6 +30,7 @@ _HIGH_FREQUENCY_LOW_HZ = 5.0
 _SPECTRAL_HIGH_HZ = 15.0
 _FILTER_ORDER = 4
 _MIN_IMPACT_INTERVAL_SEC = 0.2
+_LOCAL_PEAK_WINDOW_SEC = 0.30
 
 
 class FeatureExtractionError(ValueError):
@@ -287,6 +288,109 @@ def _impact_peak_features(filtered_z: np.ndarray, fs: float) -> dict[str, float]
     }
 
 
+def _zero_morphology_features() -> dict[str, float]:
+    """Return finite defaults for windows with no detectable impact morphology."""
+
+    return {
+        "Impact_Impulse": 0.0,
+        "Peak_Symmetry": 0.0,
+        "Impact_Crest_Factor": 0.0,
+        "Impact_Local_Kurtosis": 0.0,
+    }
+
+
+def _impact_morphology_features(filtered_z: np.ndarray, fs: float) -> dict[str, float]:
+    """Return vertical impact-pulse morphology summaries.
+
+    These v4 descriptors intentionally focus on pulse shape rather than cadence
+    or inter-impact timing. Peaks are detected with the same conservative
+    filtered-Z procedure used by the v3 gait-event features.
+
+    ``Impact_Impulse`` estimates average positive area around detected peaks,
+    which is a proxy for the vertical acceleration pulse's load-like content.
+    ``Peak_Symmetry`` measures whether the rising and falling half-widths are
+    balanced. ``Impact_Crest_Factor`` measures how impulsive the largest impact
+    is relative to the window's filtered vertical RMS. ``Impact_Local_Kurtosis``
+    measures local peak tailedness/peakedness in fixed windows around impacts.
+    """
+
+    amplitude_range = float(np.ptp(filtered_z))
+    vertical_std = float(np.std(filtered_z))
+    prominence_threshold = max(0.05 * amplitude_range, 0.25 * vertical_std)
+    filtered_rms = _rms(filtered_z)
+    if (
+        not math.isfinite(prominence_threshold)
+        or prominence_threshold <= 0
+        or filtered_rms <= 0
+    ):
+        return _zero_morphology_features()
+
+    peaks, properties = find_peaks(
+        filtered_z,
+        distance=max(1, int(round(_MIN_IMPACT_INTERVAL_SEC * fs))),
+        prominence=prominence_threshold,
+    )
+    if peaks.size == 0:
+        return _zero_morphology_features()
+
+    widths = peak_widths(
+        filtered_z,
+        peaks,
+        rel_height=0.5,
+        prominence_data=(
+            properties["prominences"],
+            properties["left_bases"],
+            properties["right_bases"],
+        ),
+    )
+    width_samples = widths[0]
+    half_height = widths[1]
+    left_ips = widths[2]
+    right_ips = widths[3]
+
+    impulses: list[float] = []
+    symmetries: list[float] = []
+    local_kurtoses: list[float] = []
+    half_window = max(2, int(round(_LOCAL_PEAK_WINDOW_SEC * fs / 2.0)))
+
+    for peak, left_ip, right_ip, baseline in zip(
+        peaks,
+        left_ips,
+        right_ips,
+        half_height,
+        strict=True,
+    ):
+        left_index = max(0, int(np.floor(left_ip)))
+        right_index = min(filtered_z.size, int(np.ceil(right_ip)) + 1)
+        if right_index > left_index:
+            positive_lobe = np.maximum(filtered_z[left_index:right_index] - baseline, 0.0)
+            impulses.append(float(np.trapezoid(positive_lobe, dx=1.0 / fs)))
+
+        left_width = float(peak - left_ip)
+        right_width = float(right_ip - peak)
+        wider_side = max(left_width, right_width)
+        if wider_side > 0:
+            symmetries.append(float(min(left_width, right_width) / wider_side))
+
+        local_left = max(0, int(peak) - half_window)
+        local_right = min(filtered_z.size, int(peak) + half_window + 1)
+        local = filtered_z[local_left:local_right]
+        local_std = float(np.std(local))
+        if local.size >= 4 and local_std > 0:
+            standardized = (local - np.mean(local)) / local_std
+            local_kurtoses.append(float(np.mean(np.power(standardized, 4)) - 3.0))
+
+    crest_factor = float(np.max(filtered_z[peaks]) / filtered_rms)
+    return {
+        "Impact_Impulse": float(np.mean(impulses)) if impulses else 0.0,
+        "Peak_Symmetry": float(np.mean(symmetries)) if symmetries else 0.0,
+        "Impact_Crest_Factor": crest_factor,
+        "Impact_Local_Kurtosis": float(np.mean(local_kurtoses))
+        if local_kurtoses
+        else 0.0,
+    }
+
+
 def _rms(values: np.ndarray) -> float:
     """Return the root mean square of a finite numeric array."""
 
@@ -307,7 +411,9 @@ def extract_window_features(
     Engineering v2 adds conservative magnitude, jerk, spectral, roll-amplitude,
     and covariance summaries without changing the original seven formulas.
     Feature Engineering v3 adds gait-event and temporal summaries from the
-    same filtered vertical acceleration signal.
+    same filtered vertical acceleration signal. Feature Engineering v4 adds
+    non-timing pulse morphology descriptors for the filtered vertical impact
+    waveform.
 
     Parameters
     ----------
@@ -319,8 +425,8 @@ def extract_window_features(
     Returns
     -------
     dict
-        Window provenance followed by the original seven, seven v2, and seven
-        v3 feature values.
+        Window provenance followed by the original seven, seven v2, seven v3,
+        and experimental v4 morphology feature values.
     """
 
     fs_float = _validate_sampling_rate(fs)
@@ -342,6 +448,7 @@ def extract_window_features(
     )
     filtered_gyro_y = _filter_gyro_y(signals["gy_dps"], fs_float)
     impact_features = _impact_peak_features(filtered_z, fs_float)
+    morphology_features = _impact_morphology_features(filtered_z, fs_float)
 
     return {
         "recording_id": window.recording_id,
@@ -369,4 +476,5 @@ def extract_window_features(
         "GyroY_PeakToPeak": float(np.ptp(filtered_gyro_y)),
         "Accel_Anisotropy": _acceleration_anisotropy(signals),
         **impact_features,
+        **morphology_features,
     }

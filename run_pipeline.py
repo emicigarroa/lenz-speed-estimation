@@ -23,6 +23,10 @@ from lenz_speed import (  # noqa: E402
     same_subject_cadence_stress_test,
     same_subject_standard_validation,
     save_windowed_feature_table,
+    subject4_final_cross_subject_test,
+    subject2_normal_cross_subject_validation,
+    subjects_1_3_development_validation,
+    subjects_1_3_loso_validation,
 )
 
 
@@ -46,6 +50,12 @@ def main() -> None:
     stress_metrics, stress_predictions = same_subject_cadence_stress_test()
     error_by_speed_condition, worst_recordings = cadence_stress_error_analysis()
     loso_metrics, loso_predictions = cadence_robustness_loso()
+    subject2_metrics, subject2_predictions = subject2_normal_cross_subject_validation()
+    development_metrics, development_predictions = subjects_1_3_development_validation()
+    development_loso_metrics, development_loso_predictions = subjects_1_3_loso_validation()
+    subject4_metrics, subject4_predictions, subject4_error_by_speed = (
+        subject4_final_cross_subject_test()
+    )
     ablation_metrics, ablation_predictions = feature_ablation()
     figure_paths = generate_all_plots()
 
@@ -58,6 +68,15 @@ def main() -> None:
         REPOSITORY_ROOT / "outputs/tables/worst_recordings.csv",
         REPOSITORY_ROOT / "outputs/tables/cadence_robustness_loso_metrics.csv",
         REPOSITORY_ROOT / "outputs/tables/cadence_robustness_loso_predictions.csv",
+        REPOSITORY_ROOT / "outputs/tables/subject2_normal_cross_subject_metrics.csv",
+        REPOSITORY_ROOT / "outputs/tables/subject2_normal_cross_subject_predictions.csv",
+        REPOSITORY_ROOT / "outputs/tables/subjects1_3_development_metrics.csv",
+        REPOSITORY_ROOT / "outputs/tables/subjects1_3_development_predictions.csv",
+        REPOSITORY_ROOT / "outputs/tables/subjects1_3_loso_metrics.csv",
+        REPOSITORY_ROOT / "outputs/tables/subjects1_3_loso_predictions.csv",
+        REPOSITORY_ROOT / "outputs/tables/subject4_final_cross_subject_metrics.csv",
+        REPOSITORY_ROOT / "outputs/tables/subject4_final_cross_subject_predictions.csv",
+        REPOSITORY_ROOT / "outputs/tables/subject4_error_by_speed.csv",
         REPOSITORY_ROOT / "outputs/tables/feature_ablation_metrics.csv",
         REPOSITORY_ROOT / "outputs/tables/feature_ablation_predictions.csv",
     ]
@@ -78,6 +97,15 @@ def main() -> None:
     ]
     if len(loso_rf_overall) != 1:
         raise ValueError("Expected exactly one overall LOSO Random Forest MAE row.")
+    subject2_rf_mae = _model_mae(subject2_metrics, "Random Forest")
+    development_rf_mae = _model_mae(development_metrics, "Random Forest")
+    subject4_v4_rf = subject4_metrics.loc[
+        (subject4_metrics["feature_set"] == "v4_morphology")
+        & (subject4_metrics["model"] == "Random Forest"),
+        "MAE",
+    ]
+    if len(subject4_v4_rf) != 1:
+        raise ValueError("Expected exactly one Subject 4 v4 Random Forest MAE row.")
     best_ablation = ablation_metrics.sort_values("MAE").iloc[0]
     with feature_table_path.open(encoding="utf-8") as feature_table_file:
         feature_row_count = sum(1 for _ in feature_table_file) - 1
@@ -104,6 +132,26 @@ def main() -> None:
         "Cadence robustness LOSO: "
         f"{len(loso_predictions)} predictions, "
         f"overall Random Forest MAE={float(loso_rf_overall.iloc[0]):.4f} mph"
+    )
+    print(
+        "Subject 2 normal cadence cross-subject: "
+        f"{len(subject2_predictions)} predictions, "
+        f"Random Forest MAE={subject2_rf_mae:.4f} mph"
+    )
+    print(
+        "Subjects 1--3 development validation: "
+        f"{len(development_predictions)} predictions, "
+        f"Random Forest MAE={development_rf_mae:.4f} mph"
+    )
+    print(
+        "Subjects 1--3 LOSO development: "
+        f"{len(development_loso_predictions)} predictions"
+    )
+    print(
+        "Subject 4 final frozen test: "
+        f"{len(subject4_predictions)} predictions, "
+        f"v4 Random Forest MAE={float(subject4_v4_rf.iloc[0]):.4f} mph, "
+        f"{len(subject4_error_by_speed)} speed-summary rows"
     )
     print(
         "Best feature ablation: "
